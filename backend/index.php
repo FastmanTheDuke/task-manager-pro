@@ -9,7 +9,8 @@
 require_once __DIR__ . '/Bootstrap.php';
 
 use TaskManager\Bootstrap;
-use TaskManager\Utils\Response;
+use TaskManager\Services\ResponseService as Response;
+use TaskManager\Services\ValidationService;
 use TaskManager\Middleware\AuthMiddleware;
 use TaskManager\Middleware\ValidationMiddleware;
 use TaskManager\Models\Task;
@@ -64,17 +65,17 @@ try {
             handleCreateTask();
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'GET':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'GET':
             AuthMiddleware::handle();
             handleGetTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'PUT':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'PUT':
             AuthMiddleware::handle();
             handleUpdateTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
             AuthMiddleware::handle();
             handleDeleteTask($matches[1]);
             break;
@@ -99,7 +100,7 @@ try {
             Response::error('Endpoint not found', 404);
     }
     
-} catch (\Exception $e) {
+} catch (\\Exception $e) {
     error_log('API Error: ' . $e->getMessage());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
@@ -124,8 +125,8 @@ function handleHealthCheck(): void
 function handleLogin(): void
 {
     $rules = [
-        'email' => ['required', 'email'],
-        'password' => ['required']
+        'email' => 'required|email',
+        'password' => 'required'
     ];
     
     $data = ValidationMiddleware::validate($rules);
@@ -149,11 +150,11 @@ function handleLogin(): void
 function handleRegister(): void
 {
     $rules = [
-        'email' => ['required', 'email'],
-        'password' => ['required', ['min', 6]],
-        'username' => [['min', 3]],
-        'first_name' => [['max', 50]],
-        'last_name' => [['max', 50]]
+        'email' => 'required|email',
+        'password' => 'required|min:6',
+        'username' => 'min:3',
+        'first_name' => 'max:50',
+        'last_name' => 'max:50'
     ];
     
     $data = ValidationMiddleware::validate($rules);
@@ -193,7 +194,7 @@ function handleTokenRefresh(): void
 {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     
-    if (!preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
+    if (!preg_match('/Bearer\\s+(.*)$/i', $authHeader, $matches)) {
         Response::error('Token manquant', 401);
     }
     
@@ -243,15 +244,15 @@ function handleGetTasks(): void
 function handleCreateTask(): void
 {
     $rules = [
-        'title' => ['required', ['max', 200]],
-        'description' => [['max', 1000]],
-        'project_id' => ['integer'],
-        'assignee_id' => ['integer'],
-        'status' => [['in', ['pending', 'in_progress', 'completed', 'archived', 'cancelled']]],
-        'priority' => [['in', ['low', 'medium', 'high', 'urgent']]],
-        'due_date' => ['date'],
-        'start_date' => ['date'],
-        'estimated_hours' => ['numeric']
+        'title' => 'required|max:200',
+        'description' => 'max:1000',
+        'project_id' => 'integer',
+        'assignee_id' => 'integer',
+        'status' => 'in:pending,in_progress,completed,archived,cancelled',
+        'priority' => 'in:low,medium,high,urgent',
+        'due_date' => 'date',
+        'start_date' => 'date',
+        'estimated_hours' => 'numeric'
     ];
     
     $data = ValidationMiddleware::validate($rules);
@@ -295,12 +296,12 @@ function handleGetTask(int $taskId): void
 function handleUpdateTask(int $taskId): void
 {
     $rules = [
-        'title' => [['max', 200]],
-        'description' => [['max', 1000]],
-        'status' => [['in', ['pending', 'in_progress', 'completed', 'archived', 'cancelled']]],
-        'priority' => [['in', ['low', 'medium', 'high', 'urgent']]],
-        'due_date' => ['date'],
-        'completion_percentage' => ['integer']
+        'title' => 'max:200',
+        'description' => 'max:1000',
+        'status' => 'in:pending,in_progress,completed,archived,cancelled',
+        'priority' => 'in:low,medium,high,urgent',
+        'due_date' => 'date',
+        'completion_percentage' => 'integer'
     ];
     
     $data = ValidationMiddleware::validate($rules);
@@ -367,13 +368,13 @@ function handleGetProfile(): void
 function handleUpdateProfile(): void
 {
     $rules = [
-        'username' => [['min', 3]],
-        'email' => ['email'],
-        'first_name' => [['max', 50]],
-        'last_name' => [['max', 50]],
-        'theme' => [['in', ['light', 'dark', 'auto']]],
-        'language' => [['in', ['fr', 'en']]],
-        'timezone' => ['string']
+        'username' => 'min:3',
+        'email' => 'email',
+        'first_name' => 'max:50',
+        'last_name' => 'max:50',
+        'theme' => 'in:light,dark,auto',
+        'language' => 'in:fr,en',
+        'timezone' => 'string'
     ];
     
     $data = ValidationMiddleware::validate($rules);
