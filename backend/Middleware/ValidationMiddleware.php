@@ -1,8 +1,8 @@
 <?php
 namespace TaskManager\Middleware;
 
-use TaskManager\Utils\Response;
-use TaskManager\Utils\Validator;
+use TaskManager\Services\ResponseService as Response;
+use TaskManager\Services\ValidationService;
 
 class ValidationMiddleware
 {
@@ -17,10 +17,9 @@ class ValidationMiddleware
             Response::error('Aucune donnée fournie', 400);
         }
         
-        $validator = new Validator($data, $rules);
-        
-        if (!$validator->validate()) {
-            Response::error('Erreur de validation', 422, $validator->getErrors());
+        // Use new ValidationService
+        if (!ValidationService::validate($data, $rules)) {
+            Response::error('Erreur de validation', 422, ValidationService::getErrors());
         }
         
         return $data;
@@ -53,8 +52,7 @@ class ValidationMiddleware
      */
     public static function validateField(string $field, $value, array $rules): bool
     {
-        $validator = new Validator([$field => $value], [$field => $rules]);
-        return $validator->validate();
+        return ValidationService::validate([$field => $value], [$field => $rules]);
     }
     
     /**
@@ -62,20 +60,7 @@ class ValidationMiddleware
      */
     public static function sanitize(array $data): array
     {
-        $sanitized = [];
-        
-        foreach ($data as $key => $value) {
-            if (is_string($value)) {
-                // Remove HTML tags and trim whitespace
-                $sanitized[$key] = trim(strip_tags($value));
-            } elseif (is_array($value)) {
-                $sanitized[$key] = self::sanitize($value);
-            } else {
-                $sanitized[$key] = $value;
-            }
-        }
-        
-        return $sanitized;
+        return ValidationService::sanitize($data);
     }
     
     /**
