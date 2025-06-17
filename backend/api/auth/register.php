@@ -1,47 +1,106 @@
 <?php
-require_once '../../vendor/autoload.php';
+/**
+ * Register API Endpoint
+ * 
+ * Creates a new user account and returns a JWT token
+ */
 
+require_once '../../Bootstrap.php';
+
+use TaskManager\Bootstrap;
 use TaskManager\Models\User;
+use TaskManager\Config\JWTManager;
 use TaskManager\Utils\Response;
-use TaskManager\Utils\Validator;
-use TaskManager\Middleware\CorsMiddleware;
 use TaskManager\Middleware\ValidationMiddleware;
 
-// Gérer CORS
-CorsMiddleware::handle();
+// Initialize application
+Bootstrap::init();
 
-// Valider la méthode HTTP
+// Only allow POST requests
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     Response::error('Méthode non autorisée', 405);
 }
 
-// Définir les règles de validation
-$rules = [
-    'username' => ['required', ['min', 3], ['max', 50]],
-    'email' => ['required', 'email'],
-    'password' => ['required', ['min', 8]],
-    'password_confirmation' => ['required', 'confirmed'],
-    'first_name' => [['max', 50]],
-    'last_name' => [['max', 50]]
-];
-
-// Valider les données
-$data = ValidationMiddleware::validate($rules);
-
-// Créer l'utilisateur
-$userModel = new User();
-$result = $userModel->create($data);
-
-if ($result['success']) {
-    // Authentifier automatiquement l'utilisateur
-    $authResult = $userModel->authenticate($data['username'], $data['password']);
+try {
+    // Validation rules
+    $rules = [
+        'email' => ['required', 'email'],
+        'password' => ['required', ['min', 6]],
+        'username' => [['min', 3], ['max', 50]],
+        'first_name' => [['max', 50]],
+        'last_name' => [['max', 50]],
+        'language' => [['in', ['fr', 'en']]],
+        'timezone' => ['string']
+    ];
     
-    if ($authResult['success']) {
-        Response::success('Inscription réussie', [
-            'user' => $authResult['user'],
-            'token' => $authResult['token']
-        ], 201);
+    // Validate request data
+    $data = ValidationMiddleware::validate($rules);
+    
+    // Create user model
+    $userModel = new User();
+    
+    // Additional validation
+    $errors = $userModel->validateUserData($data);
+    if (!empty($errors)) {
+        Response::error('Erreur de validation', 422, $errors);
+    }
+    
+    // Check if email already exists
+    if ($userModel->emailExists($data['email'])) {
+        Response::error('Cette adresse email est déjà utilisée', 409);
+    }
+    
+    // Check if username already exists (if provided)
+    if (!empty($data['username']) && $userModel->usernameExists($data['username'])) {
+        Response::error('Ce nom d\'utilisateur est déjà utilisé', 409);
+    }
+    
+    // Create the user
+    $result = $userModel->createUser($data);
+    
+    if (!$result['success']) {
+        Response::error($result['message'], 400);
+    }
+    
+    $user = $result['data'];
+    
+    // Generate JWT token
+    $token = JWTManager::generateToken($user);
+    
+    // Log successful registration
+    if (class_exists('\TaskManager\Middleware\LoggerMiddleware')) {
+        \TaskManager\Middleware\LoggerMiddleware::logActivity(
+            'register',
+            'user',
+            $user['id'],
+            null,
+            ['ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown']
+        );
+    }
+    
+    Response::success([
+        'user' => [
+            'id' => $user['id'],
+            'username' => $user['username'],
+            'email' => $user['email'],
+            'first_name' => $user['first_name'],
+            'last_name' => $user['last_name'],
+            'avatar' => $user['avatar'],
+            'role' => $user['role'],
+            'theme' => $user['theme'],
+            'language' => $user['language'],
+            'timezone' => $user['timezone']
+        ],
+        'token' => $token,
+        'expires_in' => 3600
+    ], 'Compte créé avec succès', 201);
+    
+} catch (\Exception $e) {
+    error_log('Register error: ' . $e->getMessage());
+    
+    if (Bootstrap::getAppInfo()['environment'] === 'development') {
+        Response::error('Erreur interne: ' . $e->getMessage(), 500);
+    } else {
+        Response::error('Erreur interne du serveur', 500);
     }
 }
-
-Response::error($result['message'] ?? 'Erreur lors de l\'inscription', 400);
