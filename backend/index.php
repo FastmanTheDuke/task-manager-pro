@@ -12,6 +12,7 @@ use TaskManager\Bootstrap;
 use TaskManager\Services\ResponseService as Response;
 use TaskManager\Services\ValidationService;
 use TaskManager\Middleware\AuthMiddleware;
+use TaskManager\Middleware\CorsMiddleware;
 use TaskManager\Middleware\ValidationMiddleware;
 use TaskManager\Models\Task;
 use TaskManager\Models\User;
@@ -19,6 +20,9 @@ use TaskManager\Config\JWTManager;
 
 // Initialize application
 Bootstrap::init();
+
+// Handle CORS first
+CorsMiddleware::handle();
 
 // Get request info
 $requestMethod = $_SERVER['REQUEST_METHOD'];
@@ -65,17 +69,17 @@ try {
             handleCreateTask();
             break;
             
-        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'GET':
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'GET':
             AuthMiddleware::handle();
             handleGetTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'PUT':
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'PUT':
             AuthMiddleware::handle();
             handleUpdateTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
             AuthMiddleware::handle();
             handleDeleteTask($matches[1]);
             break;
@@ -100,7 +104,7 @@ try {
             Response::error('Endpoint not found', 404);
     }
     
-} catch (\\Exception $e) {
+} catch (\Exception $e) {
     error_log('API Error: ' . $e->getMessage());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
@@ -194,7 +198,7 @@ function handleTokenRefresh(): void
 {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     
-    if (!preg_match('/Bearer\\s+(.*)$/i', $authHeader, $matches)) {
+    if (!preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
         Response::error('Token manquant', 401);
     }
     
