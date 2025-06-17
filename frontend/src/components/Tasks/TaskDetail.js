@@ -11,7 +11,7 @@ import {
   TagIcon,
   FlagIcon
 } from '@heroicons/react/24/outline';
-import { taskService } from '../../services/taskService';
+import taskService from '../../services/taskService';
 
 const TaskDetail = () => {
   const { id } = useParams();
@@ -28,8 +28,12 @@ const TaskDetail = () => {
     try {
       setLoading(true);
       const response = await taskService.getTaskById(id);
-      setTask(response.data);
-      setError(null);
+      if (response.success) {
+        setTask(response.data);
+        setError(null);
+      } else {
+        setError(response.message);
+      }
     } catch (err) {
       setError('Erreur lors du chargement de la tâche');
       console.error('Error fetching task:', err);
@@ -41,8 +45,12 @@ const TaskDetail = () => {
   const handleDelete = async () => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer cette tâche ?')) {
       try {
-        await taskService.deleteTask(id);
-        navigate('/tasks', { replace: true });
+        const response = await taskService.deleteTask(id);
+        if (response.success) {
+          navigate('/tasks', { replace: true });
+        } else {
+          setError(response.message);
+        }
       } catch (err) {
         setError('Erreur lors de la suppression de la tâche');
         console.error('Error deleting task:', err);
