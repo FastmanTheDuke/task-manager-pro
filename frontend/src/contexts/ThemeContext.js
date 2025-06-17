@@ -1,73 +1,36 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import authService from '../services/authService';
-import notificationService from '../services/notificationService';
 
-const AuthContext = createContext(null);
+const ThemeContext = createContext(null);
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
+export const useTheme = () => {
+  const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;
 };
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+export const ThemeProvider = ({ children }) => {
+  const [theme, setTheme] = useState(() => {
+    const savedTheme = localStorage.getItem('theme');
+    return savedTheme || 'light';
+  });
 
   useEffect(() => {
-    // Vérifier si l'utilisateur est déjà connecté
-    const currentUser = authService.getCurrentUser();
-    if (currentUser && authService.isAuthenticated()) {
-      setUser(currentUser);
-      // Connecter aux notifications WebSocket
-      notificationService.connect(currentUser.id);
-    }
-    setLoading(false);
-  }, []);
+    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.add(theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
-  const login = async (username, password) => {
-    const result = await authService.login(username, password);
-    if (result.success) {
-      setUser(result.user);
-      notificationService.connect(result.user.id);
-    }
-    return result;
-  };
-
-  const register = async (userData) => {
-    const result = await authService.register(userData);
-    if (result.success) {
-      setUser(result.user);
-      notificationService.connect(result.user.id);
-    }
-    return result;
-  };
-
-  const logout = async () => {
-    const result = await authService.logout();
-    if (result.success) {
-      setUser(null);
-      notificationService.disconnect();
-    }
-    return result;
-  };
-
-  const updateUser = (updatedUser) => {
-    setUser(updatedUser);
-    localStorage.setItem('user', JSON.stringify(updatedUser));
+  const toggleTheme = () => {
+    setTheme((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
   };
 
   const value = {
-    user,
-    loading,
-    login,
-    register,
-    logout,
-    updateUser,
-    isAuthenticated: !!user,
+    theme,
+    setTheme,
+    toggleTheme,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 };
