@@ -1,0 +1,401 @@
+<?php
+/**
+ * Task Manager Pro - Main API Entry Point
+ * 
+ * This file serves as the main entry point for all API requests.
+ * It handles routing, authentication, and error handling.
+ */
+
+require_once __DIR__ . '/Bootstrap.php';
+
+use TaskManager\Bootstrap;
+use TaskManager\Utils\Response;
+use TaskManager\Middleware\AuthMiddleware;
+use TaskManager\Middleware\ValidationMiddleware;
+use TaskManager\Models\Task;
+use TaskManager\Models\User;
+use TaskManager\Config\JWTManager;
+
+// Initialize application
+Bootstrap::init();
+
+// Get request info
+$requestMethod = $_SERVER['REQUEST_METHOD'];
+$requestUri = $_SERVER['REQUEST_URI'];
+$path = parse_url($requestUri, PHP_URL_PATH);
+
+// Remove base path (adjust according to your setup)
+$basePath = '/task-manager-pro/backend';
+$path = str_replace($basePath, '', $path);
+
+// Simple router
+try {
+    switch (true) {
+        // Health check
+        case $path === '/api/health' && $requestMethod === 'GET':
+            handleHealthCheck();
+            break;
+            
+        // Authentication routes
+        case $path === '/api/auth/login' && $requestMethod === 'POST':
+            handleLogin();
+            break;
+            
+        case $path === '/api/auth/register' && $requestMethod === 'POST':
+            handleRegister();
+            break;
+            
+        case $path === '/api/auth/logout' && $requestMethod === 'POST':
+            handleLogout();
+            break;
+            
+        case $path === '/api/auth/refresh' && $requestMethod === 'POST':
+            handleTokenRefresh();
+            break;
+            
+        // Task routes (require authentication)
+        case $path === '/api/tasks' && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            handleGetTasks();
+            break;
+            
+        case $path === '/api/tasks' && $requestMethod === 'POST':
+            AuthMiddleware::handle();
+            handleCreateTask();
+            break;
+            
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            handleGetTask($matches[1]);
+            break;
+            
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'PUT':
+            AuthMiddleware::handle();
+            handleUpdateTask($matches[1]);
+            break;
+            
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+            AuthMiddleware::handle();
+            handleDeleteTask($matches[1]);
+            break;
+            
+        // User routes
+        case $path === '/api/users/profile' && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            handleGetProfile();
+            break;
+            
+        case $path === '/api/users/profile' && $requestMethod === 'PUT':
+            AuthMiddleware::handle();
+            handleUpdateProfile();
+            break;
+            
+        // Application info
+        case $path === '/api/info' && $requestMethod === 'GET':
+            handleAppInfo();
+            break;
+            
+        default:
+            Response::error('Endpoint not found', 404);
+    }
+    
+} catch (\Exception $e) {
+    error_log('API Error: ' . $e->getMessage());
+    
+    if (Bootstrap::getAppInfo()['environment'] === 'development') {
+        Response::error('Internal server error: ' . $e->getMessage(), 500);
+    } else {
+        Response::error('Internal server error', 500);
+    }
+}
+
+// Route handlers
+
+function handleHealthCheck(): void
+{
+    Response::success([
+        'status' => 'ok',
+        'message' => 'API is running',
+        'timestamp' => date('Y-m-d H:i:s'),
+        'version' => Bootstrap::getAppInfo()['version']
+    ]);
+}
+
+function handleLogin(): void
+{
+    $rules = [
+        'email' => ['required', 'email'],
+        'password' => ['required']
+    ];
+    
+    $data = ValidationMiddleware::validate($rules);
+    
+    $userModel = new User();
+    $user = $userModel->authenticate($data['email'], $data['password']);
+    
+    if (!$user) {
+        Response::error('Email ou mot de passe incorrect', 401);
+    }
+    
+    $token = JWTManager::generateToken($user);
+    
+    Response::success([
+        'user' => $user,
+        'token' => $token,
+        'expires_in' => 3600
+    ], 'Connexion réussie');
+}
+
+function handleRegister(): void
+{
+    $rules = [
+        'email' => ['required', 'email'],
+        'password' => ['required', ['min', 6]],
+        'username' => [['min', 3]],
+        'first_name' => [['max', 50]],
+        'last_name' => [['max', 50]]
+    ];
+    
+    $data = ValidationMiddleware::validate($rules);
+    
+    $userModel = new User();
+    
+    // Validate user data
+    $errors = $userModel->validateUserData($data);
+    if (!empty($errors)) {
+        Response::error('Erreur de validation', 422, $errors);
+    }
+    
+    $result = $userModel->createUser($data);
+    
+    if (!$result['success']) {
+        Response::error($result['message'], 400);
+    }
+    
+    $user = $result['data'];
+    $token = JWTManager::generateToken($user);
+    
+    Response::success([
+        'user' => $user,
+        'token' => $token,
+        'expires_in' => 3600
+    ], 'Compte créé avec succès', 201);
+}
+
+function handleLogout(): void
+{
+    // For JWT, logout is handled client-side by removing the token
+    // Here we could implement token blacklisting if needed
+    Response::success(null, 'Déconnexion réussie');
+}
+
+function handleTokenRefresh(): void
+{
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    
+    if (!preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
+        Response::error('Token manquant', 401);
+    }
+    
+    $token = $matches[1];
+    $newToken = JWTManager::refreshToken($token);
+    
+    if (!$newToken) {
+        Response::error('Token invalide ou expiré', 401);
+    }
+    
+    Response::success([
+        'token' => $newToken,
+        'expires_in' => 3600
+    ], 'Token renouvelé');
+}
+
+function handleGetTasks(): void
+{
+    $userId = AuthMiddleware::getCurrentUserId();
+    $taskModel = new Task();
+    
+    $filters = $_GET;
+    $page = (int)($_GET['page'] ?? 1);
+    $limit = min((int)($_GET['limit'] ?? 10), 100);
+    
+    $options = [
+        'limit' => $limit,
+        'offset' => ($page - 1) * $limit,
+        'order_by' => $_GET['sort'] ?? 'created_at',
+        'order_dir' => $_GET['order'] ?? 'DESC'
+    ];
+    
+    $tasks = $taskModel->getUserTasks($userId, $filters, $options);
+    $total = $taskModel->count(['creator_id' => $userId]);
+    
+    Response::success([
+        'tasks' => $tasks,
+        'pagination' => [
+            'page' => $page,
+            'limit' => $limit,
+            'total' => $total,
+            'pages' => ceil($total / $limit)
+        ]
+    ]);
+}
+
+function handleCreateTask(): void
+{
+    $rules = [
+        'title' => ['required', ['max', 200]],
+        'description' => [['max', 1000]],
+        'project_id' => ['integer'],
+        'assignee_id' => ['integer'],
+        'status' => [['in', ['pending', 'in_progress', 'completed', 'archived', 'cancelled']]],
+        'priority' => [['in', ['low', 'medium', 'high', 'urgent']]],
+        'due_date' => ['date'],
+        'start_date' => ['date'],
+        'estimated_hours' => ['numeric']
+    ];
+    
+    $data = ValidationMiddleware::validate($rules);
+    $data['creator_id'] = AuthMiddleware::getCurrentUserId();
+    
+    $taskModel = new Task();
+    
+    // Validate task data
+    $errors = $taskModel->validateTaskData($data);
+    if (!empty($errors)) {
+        Response::error('Erreur de validation', 422, $errors);
+    }
+    
+    $result = $taskModel->create($data);
+    
+    if (!$result['success']) {
+        Response::error($result['message'] ?? 'Erreur lors de la création', 400);
+    }
+    
+    Response::success($result['data'], 'Tâche créée avec succès', 201);
+}
+
+function handleGetTask(int $taskId): void
+{
+    $taskModel = new Task();
+    $task = $taskModel->getTaskDetails($taskId);
+    
+    if (!$task) {
+        Response::error('Tâche non trouvée', 404);
+    }
+    
+    // Check if user has access to this task
+    $userId = AuthMiddleware::getCurrentUserId();
+    if ($task['creator_id'] != $userId && $task['assignee_id'] != $userId) {
+        Response::error('Accès non autorisé', 403);
+    }
+    
+    Response::success($task);
+}
+
+function handleUpdateTask(int $taskId): void
+{
+    $rules = [
+        'title' => [['max', 200]],
+        'description' => [['max', 1000]],
+        'status' => [['in', ['pending', 'in_progress', 'completed', 'archived', 'cancelled']]],
+        'priority' => [['in', ['low', 'medium', 'high', 'urgent']]],
+        'due_date' => ['date'],
+        'completion_percentage' => ['integer']
+    ];
+    
+    $data = ValidationMiddleware::validate($rules);
+    
+    $taskModel = new Task();
+    $task = $taskModel->findById($taskId);
+    
+    if (!$task) {
+        Response::error('Tâche non trouvée', 404);
+    }
+    
+    // Check if user has access to this task
+    $userId = AuthMiddleware::getCurrentUserId();
+    if ($task['creator_id'] != $userId && $task['assignee_id'] != $userId) {
+        Response::error('Accès non autorisé', 403);
+    }
+    
+    $result = $taskModel->update($taskId, $data);
+    
+    if (!$result['success']) {
+        Response::error($result['message'] ?? 'Erreur lors de la mise à jour', 400);
+    }
+    
+    Response::success($result['data'], 'Tâche mise à jour avec succès');
+}
+
+function handleDeleteTask(int $taskId): void
+{
+    $taskModel = new Task();
+    $task = $taskModel->findById($taskId);
+    
+    if (!$task) {
+        Response::error('Tâche non trouvée', 404);
+    }
+    
+    // Check if user has access to this task
+    $userId = AuthMiddleware::getCurrentUserId();
+    if ($task['creator_id'] != $userId) {
+        Response::error('Seul le créateur peut supprimer cette tâche', 403);
+    }
+    
+    $result = $taskModel->delete($taskId);
+    
+    if (!$result['success']) {
+        Response::error($result['message'] ?? 'Erreur lors de la suppression', 400);
+    }
+    
+    Response::success(null, 'Tâche supprimée avec succès');
+}
+
+function handleGetProfile(): void
+{
+    $userId = AuthMiddleware::getCurrentUserId();
+    $userModel = new User();
+    $user = $userModel->getUserWithStats($userId);
+    
+    if (!$user) {
+        Response::error('Utilisateur non trouvé', 404);
+    }
+    
+    Response::success($user);
+}
+
+function handleUpdateProfile(): void
+{
+    $rules = [
+        'username' => [['min', 3]],
+        'email' => ['email'],
+        'first_name' => [['max', 50]],
+        'last_name' => [['max', 50]],
+        'theme' => [['in', ['light', 'dark', 'auto']]],
+        'language' => [['in', ['fr', 'en']]],
+        'timezone' => ['string']
+    ];
+    
+    $data = ValidationMiddleware::validate($rules);
+    $userId = AuthMiddleware::getCurrentUserId();
+    
+    $userModel = new User();
+    $result = $userModel->updateProfile($userId, $data);
+    
+    if (!$result['success']) {
+        Response::error($result['message'] ?? 'Erreur lors de la mise à jour', 400);
+    }
+    
+    Response::success($result['data'], 'Profil mis à jour avec succès');
+}
+
+function handleAppInfo(): void
+{
+    $info = Bootstrap::getAppInfo();
+    $checks = Bootstrap::checkConfiguration();
+    
+    Response::success([
+        'app' => $info,
+        'health' => $checks
+    ]);
+}
