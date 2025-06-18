@@ -19,7 +19,7 @@ if (!file_exists($autoloadFile)) {
 require_once $autoloadFile;
 
 use TaskManager\Config\App;
-use TaskManager\Utils\Response;
+use TaskManager\Services\ResponseService;
 use TaskManager\Middleware\CorsMiddleware;
 
 class Bootstrap
@@ -94,9 +94,9 @@ class Bootstrap
         self::logError($error);
         
         if (App::isDebug()) {
-            Response::error("Error: {$message} in {$file} on line {$line}", 500);
+            ResponseService::error("Error: {$message} in {$file} on line {$line}", 500);
         } else {
-            Response::error('Internal server error', 500);
+            ResponseService::error('Internal server error', 500);
         }
     }
     
@@ -118,14 +118,14 @@ class Bootstrap
         self::logError($error);
         
         if (App::isDebug()) {
-            Response::error([
+            ResponseService::error([
                 'message' => $exception->getMessage(),
                 'file' => $exception->getFile(),
                 'line' => $exception->getLine(),
                 'trace' => $exception->getTrace()
             ], 500);
         } else {
-            Response::error('Internal server error', 500);
+            ResponseService::error('Internal server error', 500);
         }
     }
     
