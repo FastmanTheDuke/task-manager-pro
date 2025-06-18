@@ -1,7 +1,7 @@
 <?php
 namespace TaskManager\Middleware;
 
-use TaskManager\Services\ResponseService as Response;
+use TaskManager\Services\ResponseService;
 use TaskManager\Services\ValidationService;
 
 class ValidationMiddleware
@@ -14,12 +14,12 @@ class ValidationMiddleware
         $data = self::getRequestData();
         
         if (empty($data)) {
-            Response::error('Aucune donnée fournie', 400);
+            ResponseService::error('Aucune donnée fournie', 400);
         }
         
         // Use new ValidationService
         if (!ValidationService::validate($data, $rules)) {
-            Response::error('Erreur de validation', 422, ValidationService::getErrors());
+            ResponseService::error('Erreur de validation', 422, ValidationService::getErrors());
         }
         
         return $data;
@@ -37,7 +37,7 @@ class ValidationMiddleware
             $data = json_decode($input, true);
             
             if (json_last_error() !== JSON_ERROR_NONE) {
-                Response::error('JSON invalide: ' . json_last_error_msg(), 400);
+                ResponseService::error('JSON invalide: ' . json_last_error_msg(), 400);
             }
             
             return $data ?: [];
@@ -86,20 +86,20 @@ class ValidationMiddleware
                 UPLOAD_ERR_EXTENSION => 'Extension PHP bloquée'
             ];
             
-            Response::error($errors[$file['error']] ?? 'Erreur de téléchargement', 400);
+            ResponseService::error($errors[$file['error']] ?? 'Erreur de téléchargement', 400);
         }
         
         // Validate file size
         $maxSize = $rules['max_size'] ?? 10485760; // 10MB default
         if ($file['size'] > $maxSize) {
-            Response::error('Le fichier est trop volumineux', 400);
+            ResponseService::error('Le fichier est trop volumineux', 400);
         }
         
         // Validate file type
         if (isset($rules['allowed_types'])) {
             $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
             if (!in_array($extension, $rules['allowed_types'])) {
-                Response::error('Type de fichier non autorisé', 400);
+                ResponseService::error('Type de fichier non autorisé', 400);
             }
         }
         
@@ -119,7 +119,7 @@ class ValidationMiddleware
         $expectedMime = $allowedMimes[$extension] ?? null;
         
         if ($expectedMime && $file['type'] !== $expectedMime) {
-            Response::error('Type MIME du fichier non valide', 400);
+            ResponseService::error('Type MIME du fichier non valide', 400);
         }
         
         return $file;
@@ -139,7 +139,7 @@ class ValidationMiddleware
         }
         
         if (!empty($missing)) {
-            Response::error('Champs obligatoires manquants: ' . implode(', ', $missing), 400);
+            ResponseService::error('Champs obligatoires manquants: ' . implode(', ', $missing), 400);
         }
     }
     
