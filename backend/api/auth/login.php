@@ -3,6 +3,7 @@
  * Login API Endpoint
  * 
  * Authenticates a user and returns a JWT token
+ * Supports login with either email or username
  */
 
 require_once '../../Bootstrap.php';
@@ -22,9 +23,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 try {
-    // Validation rules
+    // Validation rules - accept 'login' field that can be email or username
     $rules = [
-        'email' => ['required', 'email'],
+        'login' => ['required'],
         'password' => ['required']
     ];
     
@@ -34,11 +35,11 @@ try {
     // Create user model
     $userModel = new User();
     
-    // Attempt authentication
-    $user = $userModel->authenticate($data['email'], $data['password']);
+    // Attempt flexible authentication (email or username)
+    $user = $userModel->authenticateByLogin($data['login'], $data['password']);
     
     if (!$user) {
-        Response::error('Email ou mot de passe incorrect', 401);
+        Response::error('Email/nom d\'utilisateur ou mot de passe incorrect', 401);
     }
     
     // Generate JWT token
