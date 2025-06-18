@@ -21,10 +21,10 @@ const authService = {
     }
   },
 
-  // Connexion
-  login: async (username, password) => {
+  // Connexion - Support flexible avec email ou username
+  login: async (login, password) => {
     try {
-      const response = await api.post('/auth/login', { username, password });
+      const response = await api.post('/auth/login', { login, password });
       if (response.data.success) {
         const { token, user } = response.data.data;
         localStorage.setItem('token', token);
