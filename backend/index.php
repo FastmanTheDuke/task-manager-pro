@@ -170,14 +170,6 @@ function handleLogin(): void
         
         $data = ValidationMiddleware::validate($rules);
         
-        // For now, just return success to test validation
-        ResponseService::success([
-            'message' => 'Validation passed',
-            'data' => $data
-        ]);
-        
-        // TODO: Implement actual authentication
-        /*
         $userModel = new User();
         $user = $userModel->authenticate($data['email'], $data['password']);
         
@@ -192,7 +184,6 @@ function handleLogin(): void
             'token' => $token,
             'expires_in' => 3600
         ], 'Connexion réussie');
-        */
         
     } catch (\Exception $e) {
         ResponseService::error('Login error: ' . $e->getMessage(), 500);
