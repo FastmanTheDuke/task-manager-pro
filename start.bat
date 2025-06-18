@@ -15,10 +15,10 @@ if not exist "frontend" (
     exit /b 1
 )
 
-REM Démarrer le serveur PHP depuis le dossier backend
+REM Démarrer le serveur PHP depuis le dossier backend avec le router
 echo 📡 Démarrage du serveur PHP...
 cd backend
-start "PHP Server" php -S localhost:8000 -t .
+start "PHP Server" php -S localhost:8000 router.php
 echo ✓ Serveur PHP démarré sur http://localhost:8000
 cd ..
 
@@ -28,8 +28,12 @@ timeout /t 3 /nobreak >nul
 REM Tester l'API
 echo 🧪 Test de l'API...
 curl -s -o nul -w "%%{http_code}" http://localhost:8000/api/health >temp_status.txt 2>nul
-set /p HTTP_CODE=<temp_status.txt
-del temp_status.txt
+if exist temp_status.txt (
+    set /p HTTP_CODE=<temp_status.txt
+    del temp_status.txt
+) else (
+    set HTTP_CODE=000
+)
 
 if "%HTTP_CODE%"=="200" (
     echo ✅ API Health Check: OK
@@ -60,7 +64,10 @@ echo    Frontend:     http://localhost:3000
 echo    Backend API:  http://localhost:8000/api  
 echo    Health Check: http://localhost:8000/api/health
 echo.
+echo 📝 Commandes manuelles:
+echo    Backend:  cd backend ^&^& php -S localhost:8000 router.php
+echo    Frontend: cd frontend ^&^& npm start
+echo.
 echo 💡 Fermez les fenêtres du serveur pour les arrêter
-echo    Ou appuyez sur une touche pour fermer cette fenêtre
 echo.
 pause
