@@ -35,6 +35,13 @@ class ResponseService {
     }
     
     public static function error($message = 'Erreur', $status = 400, $errors = null) {
+        // Ensure message is always a string
+        if (is_array($message)) {
+            $message = 'Erreur de validation: ' . implode(', ', array_values($message));
+        } elseif (!is_string($message)) {
+            $message = 'Erreur interne';
+        }
+        
         $response = [
             'success' => false,
             'message' => $message,
@@ -47,7 +54,10 @@ class ResponseService {
         
         // Log l'erreur si c'est une erreur serveur
         if ($status >= 500) {
-            LoggerService::error("HTTP $status: $message", ['errors' => $errors]);
+            error_log("HTTP $status: $message");
+            if ($errors) {
+                error_log("Errors: " . json_encode($errors));
+            }
         }
         
         self::json($response, $status);
