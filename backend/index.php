@@ -52,6 +52,11 @@ try {
             handleHealthCheck();
             break;
             
+        // Debug endpoint
+        case $path === '/api/debug' && $requestMethod === 'POST':
+            handleDebug();
+            break;
+            
         // Authentication routes
         case $path === '/api/auth/login' && $requestMethod === 'POST':
             handleLogin();
@@ -137,29 +142,61 @@ function handleHealthCheck(): void
     ]);
 }
 
-function handleLogin(): void
+function handleDebug(): void
 {
-    $rules = [
-        'email' => 'required|email',
-        'password' => 'required'
-    ];
-    
-    $data = ValidationMiddleware::validate($rules);
-    
-    $userModel = new User();
-    $user = $userModel->authenticate($data['email'], $data['password']);
-    
-    if (!$user) {
-        ResponseService::error('Email ou mot de passe incorrect', 401);
-    }
-    
-    $token = JWTManager::generateToken($user);
+    // Get raw input
+    $rawInput = file_get_contents('php://input');
+    $headers = getallheaders();
     
     ResponseService::success([
-        'user' => $user,
-        'token' => $token,
-        'expires_in' => 3600
-    ], 'Connexion réussie');
+        'method' => $_SERVER['REQUEST_METHOD'],
+        'path' => $_SERVER['REQUEST_URI'],
+        'content_type' => $_SERVER['CONTENT_TYPE'] ?? 'not set',
+        'raw_input' => $rawInput,
+        'json_decoded' => json_decode($rawInput, true),
+        'json_error' => json_last_error_msg(),
+        'post_data' => $_POST,
+        'headers' => $headers
+    ]);
+}
+
+function handleLogin(): void
+{
+    try {
+        $rules = [
+            'email' => 'required|email',
+            'password' => 'required'
+        ];
+        
+        $data = ValidationMiddleware::validate($rules);
+        
+        // For now, just return success to test validation
+        ResponseService::success([
+            'message' => 'Validation passed',
+            'data' => $data
+        ]);
+        
+        // TODO: Implement actual authentication
+        /*
+        $userModel = new User();
+        $user = $userModel->authenticate($data['email'], $data['password']);
+        
+        if (!$user) {
+            ResponseService::error('Email ou mot de passe incorrect', 401);
+        }
+        
+        $token = JWTManager::generateToken($user);
+        
+        ResponseService::success([
+            'user' => $user,
+            'token' => $token,
+            'expires_in' => 3600
+        ], 'Connexion réussie');
+        */
+        
+    } catch (\Exception $e) {
+        ResponseService::error('Login error: ' . $e->getMessage(), 500);
+    }
 }
 
 function handleRegister(): void
