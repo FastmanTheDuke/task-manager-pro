@@ -9,7 +9,7 @@
 require_once __DIR__ . '/Bootstrap.php';
 
 use TaskManager\Bootstrap;
-use TaskManager\Services\ResponseService as Response;
+use TaskManager\Services\ResponseService;
 use TaskManager\Services\ValidationService;
 use TaskManager\Middleware\AuthMiddleware;
 use TaskManager\Middleware\CorsMiddleware;
@@ -112,16 +112,16 @@ try {
             break;
             
         default:
-            Response::error('Endpoint not found', 404);
+            ResponseService::error('Endpoint not found', 404);
     }
     
 } catch (\Exception $e) {
     error_log('API Error: ' . $e->getMessage());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
-        Response::error('Internal server error: ' . $e->getMessage(), 500);
+        ResponseService::error('Internal server error: ' . $e->getMessage(), 500);
     } else {
-        Response::error('Internal server error', 500);
+        ResponseService::error('Internal server error', 500);
     }
 }
 
@@ -129,7 +129,7 @@ try {
 
 function handleHealthCheck(): void
 {
-    Response::success([
+    ResponseService::success([
         'status' => 'ok',
         'message' => 'API is running',
         'timestamp' => date('Y-m-d H:i:s'),
@@ -150,12 +150,12 @@ function handleLogin(): void
     $user = $userModel->authenticate($data['email'], $data['password']);
     
     if (!$user) {
-        Response::error('Email ou mot de passe incorrect', 401);
+        ResponseService::error('Email ou mot de passe incorrect', 401);
     }
     
     $token = JWTManager::generateToken($user);
     
-    Response::success([
+    ResponseService::success([
         'user' => $user,
         'token' => $token,
         'expires_in' => 3600
@@ -179,19 +179,19 @@ function handleRegister(): void
     // Validate user data
     $errors = $userModel->validateUserData($data);
     if (!empty($errors)) {
-        Response::error('Erreur de validation', 422, $errors);
+        ResponseService::error('Erreur de validation', 422, $errors);
     }
     
     $result = $userModel->createUser($data);
     
     if (!$result['success']) {
-        Response::error($result['message'], 400);
+        ResponseService::error($result['message'], 400);
     }
     
     $user = $result['data'];
     $token = JWTManager::generateToken($user);
     
-    Response::success([
+    ResponseService::success([
         'user' => $user,
         'token' => $token,
         'expires_in' => 3600
@@ -202,7 +202,7 @@ function handleLogout(): void
 {
     // For JWT, logout is handled client-side by removing the token
     // Here we could implement token blacklisting if needed
-    Response::success(null, 'Déconnexion réussie');
+    ResponseService::success(null, 'Déconnexion réussie');
 }
 
 function handleTokenRefresh(): void
@@ -210,17 +210,17 @@ function handleTokenRefresh(): void
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     
     if (!preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
-        Response::error('Token manquant', 401);
+        ResponseService::error('Token manquant', 401);
     }
     
     $token = $matches[1];
     $newToken = JWTManager::refreshToken($token);
     
     if (!$newToken) {
-        Response::error('Token invalide ou expiré', 401);
+        ResponseService::error('Token invalide ou expiré', 401);
     }
     
-    Response::success([
+    ResponseService::success([
         'token' => $newToken,
         'expires_in' => 3600
     ], 'Token renouvelé');
@@ -245,7 +245,7 @@ function handleGetTasks(): void
     $tasks = $taskModel->getUserTasks($userId, $filters, $options);
     $total = $taskModel->count(['creator_id' => $userId]);
     
-    Response::success([
+    ResponseService::success([
         'tasks' => $tasks,
         'pagination' => [
             'page' => $page,
@@ -278,16 +278,16 @@ function handleCreateTask(): void
     // Validate task data
     $errors = $taskModel->validateTaskData($data);
     if (!empty($errors)) {
-        Response::error('Erreur de validation', 422, $errors);
+        ResponseService::error('Erreur de validation', 422, $errors);
     }
     
     $result = $taskModel->create($data);
     
     if (!$result['success']) {
-        Response::error($result['message'] ?? 'Erreur lors de la création', 400);
+        ResponseService::error($result['message'] ?? 'Erreur lors de la création', 400);
     }
     
-    Response::success($result['data'], 'Tâche créée avec succès', 201);
+    ResponseService::success($result['data'], 'Tâche créée avec succès', 201);
 }
 
 function handleGetTask(int $taskId): void
@@ -296,16 +296,16 @@ function handleGetTask(int $taskId): void
     $task = $taskModel->getTaskDetails($taskId);
     
     if (!$task) {
-        Response::error('Tâche non trouvée', 404);
+        ResponseService::error('Tâche non trouvée', 404);
     }
     
     // Check if user has access to this task
     $userId = AuthMiddleware::getCurrentUserId();
     if ($task['creator_id'] != $userId && $task['assignee_id'] != $userId) {
-        Response::error('Accès non autorisé', 403);
+        ResponseService::error('Accès non autorisé', 403);
     }
     
-    Response::success($task);
+    ResponseService::success($task);
 }
 
 function handleUpdateTask(int $taskId): void
@@ -325,22 +325,22 @@ function handleUpdateTask(int $taskId): void
     $task = $taskModel->findById($taskId);
     
     if (!$task) {
-        Response::error('Tâche non trouvée', 404);
+        ResponseService::error('Tâche non trouvée', 404);
     }
     
     // Check if user has access to this task
     $userId = AuthMiddleware::getCurrentUserId();
     if ($task['creator_id'] != $userId && $task['assignee_id'] != $userId) {
-        Response::error('Accès non autorisé', 403);
+        ResponseService::error('Accès non autorisé', 403);
     }
     
     $result = $taskModel->update($taskId, $data);
     
     if (!$result['success']) {
-        Response::error($result['message'] ?? 'Erreur lors de la mise à jour', 400);
+        ResponseService::error($result['message'] ?? 'Erreur lors de la mise à jour', 400);
     }
     
-    Response::success($result['data'], 'Tâche mise à jour avec succès');
+    ResponseService::success($result['data'], 'Tâche mise à jour avec succès');
 }
 
 function handleDeleteTask(int $taskId): void
@@ -349,22 +349,22 @@ function handleDeleteTask(int $taskId): void
     $task = $taskModel->findById($taskId);
     
     if (!$task) {
-        Response::error('Tâche non trouvée', 404);
+        ResponseService::error('Tâche non trouvée', 404);
     }
     
     // Check if user has access to this task
     $userId = AuthMiddleware::getCurrentUserId();
     if ($task['creator_id'] != $userId) {
-        Response::error('Seul le créateur peut supprimer cette tâche', 403);
+        ResponseService::error('Seul le créateur peut supprimer cette tâche', 403);
     }
     
     $result = $taskModel->delete($taskId);
     
     if (!$result['success']) {
-        Response::error($result['message'] ?? 'Erreur lors de la suppression', 400);
+        ResponseService::error($result['message'] ?? 'Erreur lors de la suppression', 400);
     }
     
-    Response::success(null, 'Tâche supprimée avec succès');
+    ResponseService::success(null, 'Tâche supprimée avec succès');
 }
 
 function handleGetProfile(): void
@@ -374,10 +374,10 @@ function handleGetProfile(): void
     $user = $userModel->getUserWithStats($userId);
     
     if (!$user) {
-        Response::error('Utilisateur non trouvé', 404);
+        ResponseService::error('Utilisateur non trouvé', 404);
     }
     
-    Response::success($user);
+    ResponseService::success($user);
 }
 
 function handleUpdateProfile(): void
@@ -399,10 +399,10 @@ function handleUpdateProfile(): void
     $result = $userModel->updateProfile($userId, $data);
     
     if (!$result['success']) {
-        Response::error($result['message'] ?? 'Erreur lors de la mise à jour', 400);
+        ResponseService::error($result['message'] ?? 'Erreur lors de la mise à jour', 400);
     }
     
-    Response::success($result['data'], 'Profil mis à jour avec succès');
+    ResponseService::success($result['data'], 'Profil mis à jour avec succès');
 }
 
 function handleAppInfo(): void
@@ -410,7 +410,7 @@ function handleAppInfo(): void
     $info = Bootstrap::getAppInfo();
     $checks = Bootstrap::checkConfiguration();
     
-    Response::success([
+    ResponseService::success([
         'app' => $info,
         'health' => $checks
     ]);
