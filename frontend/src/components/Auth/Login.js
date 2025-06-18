@@ -24,7 +24,7 @@ const Login = () => {
   const onSubmit = async (data) => {
     setLoading(true);
     try {
-      const result = await login(data.username, data.password);
+      const result = await login(data.login, data.password);
       
       if (result.success) {
         toast.success('Connexion réussie !');
@@ -65,7 +65,7 @@ const Login = () => {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit(onSubmit)}>
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
-              <label htmlFor="username" className="sr-only">
+              <label htmlFor="login" className="sr-only">
                 Email ou nom d'utilisateur
               </label>
               <div className="relative">
@@ -73,21 +73,21 @@ const Login = () => {
                   <Mail className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
-                  {...register('username', {
+                  {...register('login', {
                     required: 'Ce champ est requis',
                   })}
                   type="text"
                   autoComplete="username"
                   className={`appearance-none rounded-none relative block w-full px-3 py-2 pl-10 border ${
-                    errors.username
+                    errors.login
                       ? 'border-red-300'
                       : 'border-gray-300 dark:border-gray-600'
                   } placeholder-gray-500 text-gray-900 dark:text-white rounded-t-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm dark:bg-gray-800`}
                   placeholder="Email ou nom d'utilisateur"
                 />
               </div>
-              {errors.username && (
-                <p className="mt-1 text-xs text-red-600">{errors.username.message}</p>
+              {errors.login && (
+                <p className="mt-1 text-xs text-red-600">{errors.login.message}</p>
               )}
             </div>
             

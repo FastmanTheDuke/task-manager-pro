@@ -1,8 +1,8 @@
 # 🔑 CONNEXION - Mode d'emploi complet
 
-## 🎯 **Réponse à votre question**
+## 🎯 **Fonctionnalité Mise à Jour**
 
-Les utilisateurs sont stockés en **base de données MySQL** dans la table `users`.
+✅ **CONNEXION FLEXIBLE** - Vous pouvez maintenant vous connecter soit avec votre **email** soit avec votre **nom d'utilisateur** !
 
 ## 🗄️ **Installation de la base de données**
 
@@ -31,10 +31,11 @@ Un utilisateur admin est créé automatiquement :
 
 ```
 Email: admin@taskmanager.local
+Username: admin
 Mot de passe: Admin123!
 ```
 
-## 🚀 **Test complet**
+## 🚀 **Test complet - Connexion flexible**
 
 ### **1. Après installation DB, redémarrez le backend**
 ```bash
@@ -42,14 +43,21 @@ cd backend
 php -S localhost:8000 router.php
 ```
 
-### **2. Testez la connexion**
+### **2. Testez la connexion avec EMAIL**
 ```bash
 curl -X POST http://localhost:8000/api/auth/login \
 -H "Content-Type: application/json" \
--d '{"email":"admin@taskmanager.local","password":"Admin123!"}'
+-d '{"login":"admin@taskmanager.local","password":"Admin123!"}'
 ```
 
-**Résultat attendu :**
+### **3. Testez la connexion avec USERNAME**
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+-H "Content-Type: application/json" \
+-d '{"login":"admin","password":"Admin123!"}'
+```
+
+**Résultat attendu pour les deux :**
 ```json
 {
   "success": true,
@@ -62,9 +70,11 @@ curl -X POST http://localhost:8000/api/auth/login \
 }
 ```
 
-### **3. Depuis le frontend**
+### **4. Depuis le frontend**
 1. ✅ Ouvrir http://localhost:3000/login
-2. ✅ Email: `admin@taskmanager.local`  
+2. ✅ Dans le champ "Email ou nom d'utilisateur", entrer soit :
+   - `admin@taskmanager.local` (EMAIL)
+   - `admin` (USERNAME)
 3. ✅ Mot de passe: `Admin123!`
 4. ✅ Connexion réussie !
 
@@ -75,8 +85,8 @@ curl -X POST http://localhost:8000/api/auth/login \
 - Vérifiez `backend/.env` (DB_HOST, DB_USER, DB_PASS)
 - Vérifiez que la base `task_manager_pro` existe
 
-### **"Email ou mot de passe incorrect"**
-- ✅ Email: `admin@taskmanager.local` (pas .com !)
+### **"Email/nom d'utilisateur ou mot de passe incorrect"**
+- ✅ Email: `admin@taskmanager.local` OU Username: `admin`
 - ✅ Mot de passe: `Admin123!` (avec majuscule et !)
 
 ### **Test de debug**
@@ -88,11 +98,20 @@ mysql -u root -p -e "SHOW DATABASES LIKE 'task_manager_pro';"
 mysql -u root -p task_manager_pro -e "SELECT email, username FROM users WHERE role='admin';"
 ```
 
+## ✨ **Nouvelles fonctionnalités**
+
+- ✅ **Connexion flexible** : Email OU Username
+- ✅ **Validation intelligente** : Détection automatique du format email
+- ✅ **Interface unifiée** : Un seul champ pour les deux options
+- ✅ **Compatibilité totale** : Fonctionne avec les comptes existants
+
 ## ✅ **États possibles maintenant**
 
 - ✅ **Sans DB** - Validation fonctionne, erreur à l'authentification
-- ✅ **Avec DB** - Connexion complète avec `admin@taskmanager.local / Admin123!`
+- ✅ **Avec DB** - Connexion complète avec :
+  - `admin@taskmanager.local / Admin123!` (par email)
+  - `admin / Admin123!` (par username)
 
 ---
 
-**Le login est maintenant entièrement fonctionnel dès que la base de données est configurée !** 🎉
+**Le login flexible est maintenant entièrement fonctionnel ! Connectez-vous comme vous préférez !** 🎉
