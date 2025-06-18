@@ -20,7 +20,7 @@ class App
             'app' => [
                 'name' => 'Task Manager Pro',
                 'version' => '1.0.0',
-                'debug' => filter_var($_ENV['APP_DEBUG'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'debug' => filter_var($_ENV['APP_DEBUG'] ?? true, FILTER_VALIDATE_BOOLEAN),
                 'url' => $_ENV['APP_URL'] ?? 'http://localhost',
                 'timezone' => $_ENV['APP_TIMEZONE'] ?? 'Europe/Paris'
             ],
@@ -60,7 +60,7 @@ class App
             'upload' => [
                 'max_size' => (int)($_ENV['UPLOAD_MAX_SIZE'] ?? 10485760), // 10MB
                 'allowed_types' => ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt'],
-                'upload_path' => __DIR__ . '/../../uploads/',
+                'upload_path' => __DIR__ . '/../uploads/',
                 'public_path' => '/uploads/'
             ],
             'security' => [
@@ -77,7 +77,7 @@ class App
     
     private static function loadEnv(): void
     {
-        $envFile = __DIR__ . '/../../.env';
+        $envFile = __DIR__ . '/../.env';
         if (file_exists($envFile)) {
             $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             foreach ($lines as $line) {
