@@ -45,7 +45,7 @@ try {
     $token = JWTManager::generateToken($user);
     
     // Log successful login
-    if (class_exists('\TaskManager\Middleware\LoggerMiddleware')) {
+    if (class_exists('\\TaskManager\\Middleware\\LoggerMiddleware')) {
         \TaskManager\Middleware\LoggerMiddleware::logActivity(
             'login',
             'user',
@@ -73,11 +73,15 @@ try {
     ], 'Connexion réussie');
     
 } catch (\Exception $e) {
+    // CORRECTION : Meilleure gestion des erreurs
     error_log('Login error: ' . $e->getMessage());
+    error_log('Login error trace: ' . $e->getTraceAsString());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
+        // En développement, on montre les détails de l'erreur
         Response::error('Erreur interne: ' . $e->getMessage(), 500);
     } else {
+        // En production, on masque les détails
         Response::error('Erreur interne du serveur', 500);
     }
 }

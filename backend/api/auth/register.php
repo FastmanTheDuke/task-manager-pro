@@ -68,7 +68,7 @@ try {
     $token = JWTManager::generateToken($user);
     
     // Log successful registration
-    if (class_exists('\TaskManager\Middleware\LoggerMiddleware')) {
+    if (class_exists('\\TaskManager\\Middleware\\LoggerMiddleware')) {
         \TaskManager\Middleware\LoggerMiddleware::logActivity(
             'register',
             'user',
@@ -96,11 +96,15 @@ try {
     ], 'Compte créé avec succès', 201);
     
 } catch (\Exception $e) {
+    // CORRECTION : Meilleure gestion des erreurs
     error_log('Register error: ' . $e->getMessage());
+    error_log('Register error trace: ' . $e->getTraceAsString());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
+        // En développement, on montre les détails de l'erreur
         Response::error('Erreur interne: ' . $e->getMessage(), 500);
     } else {
+        // En production, on masque les détails
         Response::error('Erreur interne du serveur', 500);
     }
 }

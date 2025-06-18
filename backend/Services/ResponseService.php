@@ -35,16 +35,12 @@ class ResponseService {
     }
     
     public static function error($message = 'Erreur', $status = 400, $errors = null) {
-        // Ensure message is always a string
-        if (is_array($message)) {
-            $message = 'Erreur de validation: ' . implode(', ', array_values($message));
-        } elseif (!is_string($message)) {
-            $message = 'Erreur interne';
-        }
+        // CORRECTION : S'assurer que le message est toujours une string
+        $cleanMessage = self::sanitizeMessage($message);
         
         $response = [
             'success' => false,
-            'message' => $message,
+            'message' => $cleanMessage,
             'timestamp' => date('c')
         ];
         
@@ -54,13 +50,50 @@ class ResponseService {
         
         // Log l'erreur si c'est une erreur serveur
         if ($status >= 500) {
-            error_log("HTTP $status: $message");
+            // CORRECTION : S'assurer qu'on logue une string propre
+            error_log("HTTP $status: " . $cleanMessage);
             if ($errors) {
                 error_log("Errors: " . json_encode($errors));
             }
         }
         
         self::json($response, $status);
+    }
+    
+    /**
+     * NOUVELLE MÉTHODE : Nettoie et convertit le message en string
+     */
+    private static function sanitizeMessage($message) {
+        if (is_string($message)) {
+            return $message;
+        }
+        
+        if (is_array($message)) {
+            // Si c'est un array, on joint les valeurs
+            return 'Erreur de validation: ' . implode(', ', array_values($message));
+        }
+        
+        if (is_object($message)) {
+            // Si c'est un objet (comme une Exception), on utilise sa représentation string
+            if (method_exists($message, '__toString')) {
+                return (string) $message;
+            }
+            if (method_exists($message, 'getMessage')) {
+                return $message->getMessage();
+            }
+            return 'Erreur objet: ' . get_class($message);
+        }
+        
+        if (is_bool($message)) {
+            return $message ? 'true' : 'false';
+        }
+        
+        if (is_numeric($message)) {
+            return (string) $message;
+        }
+        
+        // Pour tout autre type, on force la conversion
+        return 'Erreur interne: ' . gettype($message);
     }
     
     public static function notFound($message = 'Ressource non trouvée') {
