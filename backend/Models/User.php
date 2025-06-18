@@ -73,7 +73,7 @@ class User extends BaseModel
     }
     
     /**
-     * Authenticate user
+     * Authenticate user (legacy method - only by email)
      */
     public function authenticate(string $email, string $password): ?array
     {
@@ -102,6 +102,46 @@ class User extends BaseModel
             
         } catch (Exception $e) {
             error_log("Authentication error: " . $e->getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Flexible authentication - supports both email and username
+     */
+    public function authenticateByLogin(string $login, string $password): ?array
+    {
+        try {
+            // Try to find user by email first (if it contains @)
+            if (filter_var($login, FILTER_VALIDATE_EMAIL)) {
+                $user = $this->findByEmail($login);
+            } else {
+                // Otherwise, try to find by username
+                $user = $this->findByUsername($login);
+            }
+            
+            if (!$user) {
+                return null;
+            }
+            
+            if (!password_verify($password, $user['password'])) {
+                return null;
+            }
+            
+            if ($user['status'] !== self::STATUS_ACTIVE) {
+                return null;
+            }
+            
+            // Update last login
+            $this->update($user['id'], ['last_login_at' => date('Y-m-d H:i:s')]);
+            
+            // Remove password from returned data
+            unset($user['password']);
+            
+            return $user;
+            
+        } catch (Exception $e) {
+            error_log("Flexible authentication error: " . $e->getMessage());
             return null;
         }
     }
