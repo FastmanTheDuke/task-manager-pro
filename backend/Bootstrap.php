@@ -9,12 +9,12 @@
 namespace TaskManager;
 
 // Ensure we're using the correct directory
-define('APP_ROOT', dirname(__DIR__));
+define('APP_ROOT', __DIR__);
 
-// Load Composer autoloader
-$autoloadFile = APP_ROOT . '/vendor/autoload.php';
+// Load Composer autoloader from the backend directory
+$autoloadFile = __DIR__ . '/vendor/autoload.php';
 if (!file_exists($autoloadFile)) {
-    die('Error: Composer autoload file not found. Please run "composer install".');
+    die('Error: Composer autoload file not found. Please run "composer install" in the backend directory.');
 }
 require_once $autoloadFile;
 
