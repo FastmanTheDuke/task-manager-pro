@@ -29,8 +29,19 @@ $requestMethod = $_SERVER['REQUEST_METHOD'];
 $requestUri = $_SERVER['REQUEST_URI'];
 $path = parse_url($requestUri, PHP_URL_PATH);
 
-// Remove base path (adjust according to your setup)
-$basePath = '/task-manager-pro/backend';
+// Determine base path automatically
+// If the server is started from the backend directory, no base path needed
+// If started from project root, we need to remove the backend path
+$scriptName = $_SERVER['SCRIPT_NAME'];
+$basePath = '';
+
+// If we're accessed through a subdirectory, remove it
+if (strpos($scriptName, '/task-manager-pro/backend/') !== false) {
+    $basePath = '/task-manager-pro/backend';
+} elseif (strpos($scriptName, '/backend/') !== false) {
+    $basePath = '/backend';
+}
+
 $path = str_replace($basePath, '', $path);
 
 // Simple router
