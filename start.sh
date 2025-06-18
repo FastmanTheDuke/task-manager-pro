@@ -20,10 +20,10 @@ cleanup() {
 # Capturer Ctrl+C pour nettoyer
 trap cleanup SIGINT
 
-# Démarrer le serveur PHP depuis le dossier backend
+# Démarrer le serveur PHP depuis le dossier backend avec le router
 echo "📡 Démarrage du serveur PHP..."
 cd backend
-php -S localhost:8000 -t . &
+php -S localhost:8000 router.php &
 PHP_PID=$!
 echo "✓ Serveur PHP démarré sur http://localhost:8000"
 cd ..
@@ -38,7 +38,7 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/hea
 if [ "$HTTP_CODE" = "200" ]; then
     echo "✅ API Health Check: OK"
 else
-    echo "⚠️  API Health Check: Erreur ($HTTP_CODE)"
+    echo "⚠️  API Health Check: Erreur ($HTTP_CODE) - Vérifiez que les dépendances sont installées"
 fi
 
 # Démarrer le serveur React
@@ -64,6 +64,10 @@ echo "🔗 URLs d'accès:"
 echo "   Frontend:     http://localhost:3000"
 echo "   Backend API:  http://localhost:8000/api"
 echo "   Health Check: http://localhost:8000/api/health"
+echo ""
+echo "📝 Commandes manuelles:"
+echo "   Backend:  cd backend && php -S localhost:8000 router.php"
+echo "   Frontend: cd frontend && npm start"
 echo ""
 echo "💡 Appuyez sur Ctrl+C pour arrêter les serveurs"
 echo ""
