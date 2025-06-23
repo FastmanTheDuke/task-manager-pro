@@ -144,27 +144,31 @@ try {
             break;
             
         default:
-            ResponseService::error([
-                'message' => 'Endpoint not found',
-                'path' => $path,
-                'method' => $requestMethod,
-                'debug_info' => [
-                    'original_uri' => $requestUri,
-                    'script_name' => $scriptName,
-                    'script_dir' => $scriptDir
-                ],
-                'available_endpoints' => [
-                    'GET /api/health',
-                    'GET /api/info', 
-                    'GET /api (liste des endpoints)',
-                    'POST /api/auth/login',
-                    'POST /api/auth/register',
-                    'POST /api/auth/logout',
-                    'GET /api/tasks',
-                    'POST /api/tasks',
-                    'POST /api/debug'
+            // CORRECTION: Passer le message comme string et les détails comme $errors
+            ResponseService::error(
+                'Endpoint not found', 
+                404, 
+                [
+                    'path' => $path,
+                    'method' => $requestMethod,
+                    'debug_info' => [
+                        'original_uri' => $requestUri,
+                        'script_name' => $scriptName,
+                        'script_dir' => $scriptDir
+                    ],
+                    'available_endpoints' => [
+                        'GET /api/health',
+                        'GET /api/info', 
+                        'GET /api (liste des endpoints)',
+                        'POST /api/auth/login',
+                        'POST /api/auth/register',
+                        'POST /api/auth/logout',
+                        'GET /api/tasks',
+                        'POST /api/tasks',
+                        'POST /api/debug'
+                    ]
                 ]
-            ], 404);
+            );
     }
     
 } catch (\Exception $e) {
@@ -172,13 +176,17 @@ try {
     error_log('API Error Trace: ' . $e->getTraceAsString());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
-        ResponseService::error([
-            'message' => 'Internal server error',
-            'error' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => array_slice($e->getTrace(), 0, 5) // Limit trace for readability
-        ], 500);
+        // CORRECTION: Message simple et détails dans $errors
+        ResponseService::error(
+            'Internal server error',
+            500,
+            [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => array_slice($e->getTrace(), 0, 5) // Limit trace for readability
+            ]
+        );
     } else {
         ResponseService::error('Internal server error', 500);
     }
