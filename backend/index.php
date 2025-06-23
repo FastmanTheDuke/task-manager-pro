@@ -85,17 +85,17 @@ try {
             handleCreateTask();
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'GET':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'GET':
             AuthMiddleware::handle();
             handleGetTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'PUT':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'PUT':
             AuthMiddleware::handle();
             handleUpdateTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
             AuthMiddleware::handle();
             handleDeleteTask($matches[1]);
             break;
@@ -117,11 +117,12 @@ try {
             break;
             
         default:
-            ResponseService::error('Endpoint not found', 404);
+            ResponseService::error('Endpoint not found: ' . $path, 404);
     }
     
 } catch (\Exception $e) {
     error_log('API Error: ' . $e->getMessage());
+    error_log('API Error Trace: ' . $e->getTraceAsString());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
         ResponseService::error('Internal server error: ' . $e->getMessage(), 500);
@@ -163,81 +164,169 @@ function handleDebug(): void
 function handleLogin(): void
 {
     try {
+        // CORRECTION: Support flexible login (email OR username)
         $rules = [
-            'email' => 'required|email',
+            'login' => 'required',  // Can be email or username
             'password' => 'required'
         ];
         
         $data = ValidationMiddleware::validate($rules);
         
         $userModel = new User();
-        $user = $userModel->authenticate($data['email'], $data['password']);
+        
+        // Use flexible authentication method
+        $user = $userModel->authenticateByLogin($data['login'], $data['password']);
         
         if (!$user) {
-            ResponseService::error('Email ou mot de passe incorrect', 401);
+            ResponseService::error('Email/nom d\'utilisateur ou mot de passe incorrect', 401);
         }
         
         $token = JWTManager::generateToken($user);
         
+        // Log successful login
+        if (class_exists('\\TaskManager\\Services\\LoggerService')) {
+            \TaskManager\Services\LoggerService::log(
+                'info',
+                'User login successful',
+                [
+                    'user_id' => $user['id'],
+                    'username' => $user['username'],
+                    'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+                ]
+            );
+        }
+        
         ResponseService::success([
-            'user' => $user,
+            'user' => [
+                'id' => $user['id'],
+                'username' => $user['username'],
+                'email' => $user['email'],
+                'first_name' => $user['first_name'],
+                'last_name' => $user['last_name'],
+                'avatar' => $user['avatar'],
+                'role' => $user['role'],
+                'theme' => $user['theme'],
+                'language' => $user['language'],
+                'timezone' => $user['timezone']
+            ],
             'token' => $token,
             'expires_in' => 3600
         ], 'Connexion réussie');
         
     } catch (\Exception $e) {
+        error_log('Login error: ' . $e->getMessage());
         ResponseService::error('Login error: ' . $e->getMessage(), 500);
     }
 }
 
 function handleRegister(): void
 {
-    $rules = [
-        'email' => 'required|email',
-        'password' => 'required|min:6',
-        'username' => 'min:3',
-        'first_name' => 'max:50',
-        'last_name' => 'max:50'
-    ];
-    
-    $data = ValidationMiddleware::validate($rules);
-    
-    $userModel = new User();
-    
-    // Validate user data
-    $errors = $userModel->validateUserData($data);
-    if (!empty($errors)) {
-        ResponseService::error('Erreur de validation', 422, $errors);
+    try {
+        $rules = [
+            'email' => 'required|email',
+            'password' => 'required|min:6',
+            'username' => 'min:3|max:50',
+            'first_name' => 'max:50',
+            'last_name' => 'max:50',
+            'language' => 'in:fr,en',
+            'timezone' => 'max:50'
+        ];
+        
+        $data = ValidationMiddleware::validate($rules);
+        
+        $userModel = new User();
+        
+        // Additional validation
+        $errors = $userModel->validateUserData($data);
+        if (!empty($errors)) {
+            ResponseService::validation($errors, 'Erreur de validation');
+        }
+        
+        // Check if email already exists
+        if ($userModel->emailExists($data['email'])) {
+            ResponseService::error('Cette adresse email est déjà utilisée', 409);
+        }
+        
+        // Check if username already exists (if provided)
+        if (!empty($data['username']) && $userModel->usernameExists($data['username'])) {
+            ResponseService::error('Ce nom d\'utilisateur est déjà utilisé', 409);
+        }
+        
+        $result = $userModel->createUser($data);
+        
+        if (!$result['success']) {
+            ResponseService::error($result['message'], 400);
+        }
+        
+        $user = $result['data'];
+        $token = JWTManager::generateToken($user);
+        
+        // Log successful registration
+        if (class_exists('\\TaskManager\\Services\\LoggerService')) {
+            \TaskManager\Services\LoggerService::log(
+                'info',
+                'User registration successful',
+                [
+                    'user_id' => $user['id'],
+                    'username' => $user['username'],
+                    'email' => $user['email'],
+                    'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+                ]
+            );
+        }
+        
+        ResponseService::success([
+            'user' => [
+                'id' => $user['id'],
+                'username' => $user['username'],
+                'email' => $user['email'],
+                'first_name' => $user['first_name'],
+                'last_name' => $user['last_name'],
+                'avatar' => $user['avatar'],
+                'role' => $user['role'],
+                'theme' => $user['theme'],
+                'language' => $user['language'],
+                'timezone' => $user['timezone']
+            ],
+            'token' => $token,
+            'expires_in' => 3600
+        ], 'Compte créé avec succès', 201);
+        
+    } catch (\Exception $e) {
+        error_log('Register error: ' . $e->getMessage());
+        ResponseService::error('Register error: ' . $e->getMessage(), 500);
     }
-    
-    $result = $userModel->createUser($data);
-    
-    if (!$result['success']) {
-        ResponseService::error($result['message'], 400);
-    }
-    
-    $user = $result['data'];
-    $token = JWTManager::generateToken($user);
-    
-    ResponseService::success([
-        'user' => $user,
-        'token' => $token,
-        'expires_in' => 3600
-    ], 'Compte créé avec succès', 201);
 }
 
 function handleLogout(): void
 {
-    // For JWT, logout is handled client-side by removing the token
-    // Here we could implement token blacklisting if needed
-    ResponseService::success(null, 'Déconnexion réussie');
+    try {
+        // Log successful logout
+        if (class_exists('\\TaskManager\\Services\\LoggerService')) {
+            \TaskManager\Services\LoggerService::log(
+                'info',
+                'User logout successful',
+                [
+                    'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+                ]
+            );
+        }
+        
+        // For JWT, logout is handled client-side by removing the token
+        // Here we could implement token blacklisting if needed
+        ResponseService::success(null, 'Déconnexion réussie');
+        
+    } catch (\Exception $e) {
+        error_log('Logout error: ' . $e->getMessage());
+        ResponseService::error('Erreur lors de la déconnexion', 500);
+    }
 }
 
 function handleTokenRefresh(): void
 {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     
-    if (!preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
+    if (!preg_match('/Bearer\\s+(.*)$/i', $authHeader, $matches)) {
         ResponseService::error('Token manquant', 401);
     }
     
@@ -306,7 +395,7 @@ function handleCreateTask(): void
     // Validate task data
     $errors = $taskModel->validateTaskData($data);
     if (!empty($errors)) {
-        ResponseService::error('Erreur de validation', 422, $errors);
+        ResponseService::validation($errors, 'Erreur de validation');
     }
     
     $result = $taskModel->create($data);
