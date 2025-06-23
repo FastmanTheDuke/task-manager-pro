@@ -50,12 +50,12 @@ if ($scriptDir !== '/' && !empty($scriptDir)) {
 }
 
 // Ensure path starts with /
-if (!str_starts_with($path, '/')) {
+if (substr($path, 0, 1) !== '/') {
     $path = '/' . $path;
 }
 
 // Remove trailing slashes except for root
-if ($path !== '/' && str_ends_with($path, '/')) {
+if ($path !== '/' && substr($path, -1) === '/') {
     $path = rtrim($path, '/');
 }
 
@@ -148,14 +148,21 @@ try {
                 'message' => 'Endpoint not found',
                 'path' => $path,
                 'method' => $requestMethod,
+                'debug_info' => [
+                    'original_uri' => $requestUri,
+                    'script_name' => $scriptName,
+                    'script_dir' => $scriptDir
+                ],
                 'available_endpoints' => [
                     'GET /api/health',
                     'GET /api/info', 
+                    'GET /api (liste des endpoints)',
                     'POST /api/auth/login',
                     'POST /api/auth/register',
                     'POST /api/auth/logout',
                     'GET /api/tasks',
-                    'POST /api/tasks'
+                    'POST /api/tasks',
+                    'POST /api/debug'
                 ]
             ], 404);
     }
@@ -186,7 +193,13 @@ function handleHealthCheck(): void
         'message' => 'API is running',
         'timestamp' => date('Y-m-d H:i:s'),
         'version' => Bootstrap::getAppInfo()['version'],
-        'environment' => Bootstrap::getAppInfo()['environment']
+        'environment' => Bootstrap::getAppInfo()['environment'],
+        'debug_info' => [
+            'request_uri' => $_SERVER['REQUEST_URI'],
+            'script_name' => $_SERVER['SCRIPT_NAME'] ?? 'not set',
+            'server_name' => $_SERVER['SERVER_NAME'] ?? 'not set',
+            'server_port' => $_SERVER['SERVER_PORT'] ?? 'not set'
+        ]
     ]);
 }
 
@@ -195,25 +208,35 @@ function handleApiInfo(): void
     ResponseService::success([
         'name' => 'Task Manager Pro API',
         'version' => Bootstrap::getAppInfo()['version'],
+        'message' => 'Bienvenue sur l\'API Task Manager Pro',
         'endpoints' => [
-            'health' => 'GET /api/health',
-            'info' => 'GET /api/info',
+            'health' => 'GET /api/health - Vérification de l\'état de l\'API',
+            'info' => 'GET /api/info - Informations sur l\'application',
             'auth' => [
-                'login' => 'POST /api/auth/login',
-                'register' => 'POST /api/auth/register', 
-                'logout' => 'POST /api/auth/logout',
-                'refresh' => 'POST /api/auth/refresh'
+                'login' => 'POST /api/auth/login - Connexion (email ou username)',
+                'register' => 'POST /api/auth/register - Inscription', 
+                'logout' => 'POST /api/auth/logout - Déconnexion',
+                'refresh' => 'POST /api/auth/refresh - Renouvellement de token'
             ],
             'tasks' => [
-                'list' => 'GET /api/tasks',
-                'create' => 'POST /api/tasks',
-                'get' => 'GET /api/tasks/{id}',
-                'update' => 'PUT /api/tasks/{id}',
-                'delete' => 'DELETE /api/tasks/{id}'
+                'list' => 'GET /api/tasks - Liste des tâches',
+                'create' => 'POST /api/tasks - Créer une tâche',
+                'get' => 'GET /api/tasks/{id} - Détails d\'une tâche',
+                'update' => 'PUT /api/tasks/{id} - Modifier une tâche',
+                'delete' => 'DELETE /api/tasks/{id} - Supprimer une tâche'
             ],
             'users' => [
-                'profile' => 'GET /api/users/profile',
-                'update_profile' => 'PUT /api/users/profile'
+                'profile' => 'GET /api/users/profile - Profil utilisateur',
+                'update_profile' => 'PUT /api/users/profile - Modifier le profil'
+            ],
+            'debug' => 'POST /api/debug - Informations de débogage'
+        ],
+        'authentication' => [
+            'type' => 'JWT Bearer Token',
+            'header' => 'Authorization: Bearer <token>',
+            'test_credentials' => [
+                'login' => 'admin ou admin@taskmanager.local',
+                'password' => 'Admin123!'
             ]
         ]
     ]);
@@ -245,7 +268,8 @@ function handleDebug(): void
             'DOCUMENT_ROOT' => $_SERVER['DOCUMENT_ROOT'] ?? 'not set',
             'SCRIPT_FILENAME' => $_SERVER['SCRIPT_FILENAME'] ?? 'not set',
             'SERVER_NAME' => $_SERVER['SERVER_NAME'] ?? 'not set',
-            'SERVER_PORT' => $_SERVER['SERVER_PORT'] ?? 'not set'
+            'SERVER_PORT' => $_SERVER['SERVER_PORT'] ?? 'not set',
+            'REQUEST_SCHEME' => $_SERVER['REQUEST_SCHEME'] ?? 'not set'
         ]
     ]);
 }
