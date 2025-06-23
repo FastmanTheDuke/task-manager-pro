@@ -27,22 +27,44 @@ CorsMiddleware::handle();
 // Get request info
 $requestMethod = $_SERVER['REQUEST_METHOD'];
 $requestUri = $_SERVER['REQUEST_URI'];
-$path = parse_url($requestUri, PHP_URL_PATH);
 
-// Determine base path automatically
-// If the server is started from the backend directory, no base path needed
-// If started from project root, we need to remove the backend path
-$scriptName = $_SERVER['SCRIPT_NAME'];
-$basePath = '';
-
-// If we're accessed through a subdirectory, remove it
-if (strpos($scriptName, '/task-manager-pro/backend/') !== false) {
-    $basePath = '/task-manager-pro/backend';
-} elseif (strpos($scriptName, '/backend/') !== false) {
-    $basePath = '/backend';
+// Debug info (only in development)
+if (Bootstrap::getAppInfo()['environment'] === 'development') {
+    error_log("=== ROUTING DEBUG ===");
+    error_log("REQUEST_URI: " . $requestUri);
+    error_log("SCRIPT_NAME: " . ($_SERVER['SCRIPT_NAME'] ?? 'not set'));
+    error_log("REQUEST_METHOD: " . $requestMethod);
 }
 
-$path = str_replace($basePath, '', $path);
+// Parse the path and remove query string
+$path = parse_url($requestUri, PHP_URL_PATH);
+
+// Remove base path intelligently
+// Get the directory where index.php is located
+$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+$scriptDir = dirname($scriptName);
+
+// If we're in a subdirectory, remove it from the path
+if ($scriptDir !== '/' && !empty($scriptDir)) {
+    $path = substr($path, strlen($scriptDir));
+}
+
+// Ensure path starts with /
+if (!str_starts_with($path, '/')) {
+    $path = '/' . $path;
+}
+
+// Remove trailing slashes except for root
+if ($path !== '/' && str_ends_with($path, '/')) {
+    $path = rtrim($path, '/');
+}
+
+// Debug the cleaned path
+if (Bootstrap::getAppInfo()['environment'] === 'development') {
+    error_log("SCRIPT_DIR: " . $scriptDir);
+    error_log("CLEANED_PATH: " . $path);
+    error_log("==================");
+}
 
 // Simple router
 try {
@@ -116,8 +138,26 @@ try {
             handleAppInfo();
             break;
             
+        // Root API endpoint - show available routes
+        case $path === '/api' && $requestMethod === 'GET':
+            handleApiInfo();
+            break;
+            
         default:
-            ResponseService::error('Endpoint not found: ' . $path, 404);
+            ResponseService::error([
+                'message' => 'Endpoint not found',
+                'path' => $path,
+                'method' => $requestMethod,
+                'available_endpoints' => [
+                    'GET /api/health',
+                    'GET /api/info', 
+                    'POST /api/auth/login',
+                    'POST /api/auth/register',
+                    'POST /api/auth/logout',
+                    'GET /api/tasks',
+                    'POST /api/tasks'
+                ]
+            ], 404);
     }
     
 } catch (\Exception $e) {
@@ -125,7 +165,13 @@ try {
     error_log('API Error Trace: ' . $e->getTraceAsString());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
-        ResponseService::error('Internal server error: ' . $e->getMessage(), 500);
+        ResponseService::error([
+            'message' => 'Internal server error',
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => array_slice($e->getTrace(), 0, 5) // Limit trace for readability
+        ], 500);
     } else {
         ResponseService::error('Internal server error', 500);
     }
@@ -139,7 +185,37 @@ function handleHealthCheck(): void
         'status' => 'ok',
         'message' => 'API is running',
         'timestamp' => date('Y-m-d H:i:s'),
-        'version' => Bootstrap::getAppInfo()['version']
+        'version' => Bootstrap::getAppInfo()['version'],
+        'environment' => Bootstrap::getAppInfo()['environment']
+    ]);
+}
+
+function handleApiInfo(): void
+{
+    ResponseService::success([
+        'name' => 'Task Manager Pro API',
+        'version' => Bootstrap::getAppInfo()['version'],
+        'endpoints' => [
+            'health' => 'GET /api/health',
+            'info' => 'GET /api/info',
+            'auth' => [
+                'login' => 'POST /api/auth/login',
+                'register' => 'POST /api/auth/register', 
+                'logout' => 'POST /api/auth/logout',
+                'refresh' => 'POST /api/auth/refresh'
+            ],
+            'tasks' => [
+                'list' => 'GET /api/tasks',
+                'create' => 'POST /api/tasks',
+                'get' => 'GET /api/tasks/{id}',
+                'update' => 'PUT /api/tasks/{id}',
+                'delete' => 'DELETE /api/tasks/{id}'
+            ],
+            'users' => [
+                'profile' => 'GET /api/users/profile',
+                'update_profile' => 'PUT /api/users/profile'
+            ]
+        ]
     ]);
 }
 
@@ -150,14 +226,27 @@ function handleDebug(): void
     $headers = getallheaders();
     
     ResponseService::success([
-        'method' => $_SERVER['REQUEST_METHOD'],
-        'path' => $_SERVER['REQUEST_URI'],
-        'content_type' => $_SERVER['CONTENT_TYPE'] ?? 'not set',
-        'raw_input' => $rawInput,
-        'json_decoded' => json_decode($rawInput, true),
-        'json_error' => json_last_error_msg(),
-        'post_data' => $_POST,
-        'headers' => $headers
+        'request' => [
+            'method' => $_SERVER['REQUEST_METHOD'],
+            'uri' => $_SERVER['REQUEST_URI'],
+            'script_name' => $_SERVER['SCRIPT_NAME'] ?? 'not set',
+            'path_info' => $_SERVER['PATH_INFO'] ?? 'not set',
+            'query_string' => $_SERVER['QUERY_STRING'] ?? 'not set'
+        ],
+        'content' => [
+            'type' => $_SERVER['CONTENT_TYPE'] ?? 'not set',
+            'raw_input' => $rawInput,
+            'json_decoded' => json_decode($rawInput, true),
+            'json_error' => json_last_error_msg(),
+            'post_data' => $_POST
+        ],
+        'headers' => $headers,
+        'server_vars' => [
+            'DOCUMENT_ROOT' => $_SERVER['DOCUMENT_ROOT'] ?? 'not set',
+            'SCRIPT_FILENAME' => $_SERVER['SCRIPT_FILENAME'] ?? 'not set',
+            'SERVER_NAME' => $_SERVER['SERVER_NAME'] ?? 'not set',
+            'SERVER_PORT' => $_SERVER['SERVER_PORT'] ?? 'not set'
+        ]
     ]);
 }
 
