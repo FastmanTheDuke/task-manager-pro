@@ -42,6 +42,8 @@ if (!empty($missingExtensions)) {
     foreach ($missingExtensions as $ext) {
         echo "   - $ext\n";
     }
+} else {
+    echo "\n" . colorize("🎉 Toutes les extensions requises sont activées!", 'green') . "\n";
 }
 echo "\n";
 
@@ -131,16 +133,30 @@ if (file_exists($bootstrapPath)) {
             $connectionTest = \TaskManager\Database\Connection::testConnection();
             $connStatus = $connectionTest ? colorize('✅ CONNECTÉE', 'green') : colorize('❌ ÉCHEC', 'red');
             echo "     - Connexion: $connStatus\n";
+            
+            if ($connectionTest) {
+                echo "\n" . colorize("🎉 SUCCÈS! La connexion à la base de données fonctionne!", 'green') . "\n";
+            } else {
+                echo "\n" . colorize("⚠️ Problème de connexion - vérifiez votre configuration .env", 'yellow') . "\n";
+            }
+            
         } else {
             echo colorize("   ⚠️ Test de connexion ignoré - pdo_mysql non disponible", 'yellow') . "\n";
         }
         
     } catch (Exception $e) {
         echo colorize("   ❌ ERREUR: " . $e->getMessage(), 'red') . "\n";
+        echo "   Stack trace: " . substr($e->getTraceAsString(), 0, 200) . "...\n";
     }
 } else {
     echo colorize("   ⚠️ Bootstrap.php non trouvé à: $bootstrapPath", 'yellow') . "\n";
-    echo "   Exécutez ce script depuis la racine du projet.\n";
+    echo "   Vérifiez que vous exécutez ce script depuis la racine du projet.\n";
+    echo "   Structure attendue:\n";
+    echo "   ├── test_fix.php (ce script)\n";
+    echo "   ├── backend/\n";
+    echo "   │   ├── Bootstrap.php\n";
+    echo "   │   ├── index.php\n";
+    echo "   │   └── ...\n";
 }
 echo "\n";
 
@@ -158,11 +174,17 @@ if (in_array('pdo_mysql', $missingExtensions)) {
     echo "   3. Testez l'API: curl http://localhost:8000/api/health\n";
     echo "   4. Testez le login: curl -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"login\":\"admin\",\"password\":\"Admin123!\"}'\n\n";
 } else {
-    echo colorize("   ✅ Extensions OK - Testez l'application:", 'green') . "\n";
-    echo "   1. Démarrez le serveur: cd backend && php -S localhost:8000\n";
-    echo "   2. Testez l'API: curl http://localhost:8000/api/health\n";
-    echo "   3. Testez le diagnostic: curl http://localhost:8000/api/diagnostic/system\n";
-    echo "   4. Testez le login: curl -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"login\":\"admin\",\"password\":\"Admin123!\"}'\n\n";
+    echo colorize("   ✅ Extensions OK - Prêt à tester l'application!", 'green') . "\n";
+    echo "   1. Démarrez le serveur: " . colorize("cd backend && php -S localhost:8000", 'blue') . "\n";
+    echo "   2. Testez l'API: " . colorize("curl http://localhost:8000/api/health", 'blue') . "\n";
+    echo "   3. Testez le diagnostic: " . colorize("curl http://localhost:8000/api/diagnostic/system", 'blue') . "\n";
+    echo "   4. Testez le login: " . colorize("curl -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"login\":\"admin\",\"password\":\"Admin123!\"}'", 'blue') . "\n\n";
+    
+    if (file_exists($bootstrapPath)) {
+        echo colorize("   🚀 DÉMARRAGE RAPIDE:", 'green') . "\n";
+        echo "   Votre environnement semble prêt! Lancez directement:\n";
+        echo "   " . colorize("cd backend && php -S localhost:8000", 'blue') . "\n\n";
+    }
 }
 
 // Résumé final
@@ -173,6 +195,9 @@ echo "✅ Extensions actives: $activeExtensions/$totalExtensions\n";
 
 if (empty($missingExtensions)) {
     echo colorize("🎉 Toutes les extensions requises sont installées!", 'green') . "\n";
+    if (file_exists($bootstrapPath)) {
+        echo colorize("🚀 Application prête à être testée!", 'green') . "\n";
+    }
 } else {
     echo colorize("⚠️ Extensions manquantes: " . implode(', ', $missingExtensions), 'yellow') . "\n";
 }
@@ -180,3 +205,7 @@ if (empty($missingExtensions)) {
 echo "\n" . colorize("💡 L'erreur PDO::MYSQL_ATTR_INIT_COMMAND était causée par l'absence de pdo_mysql.", 'blue') . "\n";
 echo colorize("   Nos corrections permettent à l'application de fonctionner même sans cette constante,", 'blue') . "\n";
 echo colorize("   mais l'extension pdo_mysql reste obligatoire pour se connecter à MySQL.", 'blue') . "\n";
+
+if (empty($missingExtensions) && file_exists($bootstrapPath)) {
+    echo "\n" . colorize("🎯 PROCHAINE ÉTAPE: Lancez votre serveur et testez l'API!", 'green') . "\n";
+}
