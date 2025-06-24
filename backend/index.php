@@ -39,14 +39,22 @@ if (Bootstrap::getAppInfo()['environment'] === 'development') {
 // Parse the path and remove query string
 $path = parse_url($requestUri, PHP_URL_PATH);
 
-// Remove base path intelligently
-// Get the directory where index.php is located
-$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
-$scriptDir = dirname($scriptName);
-
-// If we're in a subdirectory, remove it from the path
-if ($scriptDir !== '/' && !empty($scriptDir)) {
-    $path = substr($path, strlen($scriptDir));
+// CORRECTION: Intelligent path cleaning for subdirectory installations
+// Remove everything before '/api' to get the clean API path
+if (strpos($path, '/api') !== false) {
+    $apiPos = strpos($path, '/api');
+    $path = substr($path, $apiPos);
+} else {
+    // If no '/api' found, maybe it's a root request to the API
+    // Try to extract the last part after the base directory
+    $pathParts = explode('/', trim($path, '/'));
+    
+    // Look for common patterns
+    if (in_array('backend', $pathParts)) {
+        $backendIndex = array_search('backend', $pathParts);
+        $remainingParts = array_slice($pathParts, $backendIndex + 1);
+        $path = '/' . implode('/', $remainingParts);
+    }
 }
 
 // Ensure path starts with /
@@ -59,9 +67,14 @@ if ($path !== '/' && substr($path, -1) === '/') {
     $path = rtrim($path, '/');
 }
 
+// If we still don't have a clean API path, try to default to /api
+if ($path === '/' || $path === '') {
+    $path = '/api';
+}
+
 // Debug the cleaned path
 if (Bootstrap::getAppInfo()['environment'] === 'development') {
-    error_log("SCRIPT_DIR: " . $scriptDir);
+    error_log("ORIGINAL_PATH: " . parse_url($requestUri, PHP_URL_PATH));
     error_log("CLEANED_PATH: " . $path);
     error_log("==================");
 }
@@ -76,6 +89,7 @@ try {
             
         // Debug endpoint
         case $path === '/api/debug' && $requestMethod === 'POST':
+        case $path === '/api/debug' && $requestMethod === 'GET':
             handleDebug();
             break;
             
@@ -144,29 +158,36 @@ try {
             break;
             
         default:
-            // CORRECTION: Passer le message comme string et les détails comme $errors
+            // Enhanced error with routing debug info
             ResponseService::error(
                 'Endpoint not found', 
                 404, 
                 [
-                    'path' => $path,
+                    'requested_path' => $path,
                     'method' => $requestMethod,
-                    'debug_info' => [
+                    'routing_debug' => [
                         'original_uri' => $requestUri,
-                        'script_name' => $scriptName,
-                        'script_dir' => $scriptDir
+                        'original_path' => parse_url($requestUri, PHP_URL_PATH),
+                        'cleaned_path' => $path,
+                        'script_name' => $_SERVER['SCRIPT_NAME'] ?? 'not set',
+                        'path_analysis' => [
+                            'contains_api' => strpos(parse_url($requestUri, PHP_URL_PATH), '/api') !== false,
+                            'api_position' => strpos(parse_url($requestUri, PHP_URL_PATH), '/api'),
+                            'path_parts' => explode('/', trim(parse_url($requestUri, PHP_URL_PATH), '/'))
+                        ]
                     ],
                     'available_endpoints' => [
-                        'GET /api/health',
-                        'GET /api/info', 
-                        'GET /api (liste des endpoints)',
-                        'POST /api/auth/login',
-                        'POST /api/auth/register',
-                        'POST /api/auth/logout',
-                        'GET /api/tasks',
-                        'POST /api/tasks',
-                        'POST /api/debug'
-                    ]
+                        'GET /api/health - API status',
+                        'GET /api/info - App information', 
+                        'GET /api - List all endpoints',
+                        'POST /api/auth/login - Login',
+                        'POST /api/auth/register - Register',
+                        'POST /api/auth/logout - Logout',
+                        'GET|POST /api/debug - Debug info',
+                        'GET /api/tasks - List tasks',
+                        'POST /api/tasks - Create task'
+                    ],
+                    'tip' => 'Make sure your requests are going to the correct backend endpoint'
                 ]
             );
     }
@@ -176,7 +197,6 @@ try {
     error_log('API Error Trace: ' . $e->getTraceAsString());
     
     if (Bootstrap::getAppInfo()['environment'] === 'development') {
-        // CORRECTION: Message simple et détails dans $errors
         ResponseService::error(
             'Internal server error',
             500,
@@ -184,7 +204,7 @@ try {
                 'error' => $e->getMessage(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
-                'trace' => array_slice($e->getTrace(), 0, 5) // Limit trace for readability
+                'trace' => array_slice($e->getTrace(), 0, 5)
             ]
         );
     } else {
@@ -198,17 +218,18 @@ function handleHealthCheck(): void
 {
     ResponseService::success([
         'status' => 'ok',
-        'message' => 'API is running',
+        'message' => 'API is running perfectly',
         'timestamp' => date('Y-m-d H:i:s'),
         'version' => Bootstrap::getAppInfo()['version'],
         'environment' => Bootstrap::getAppInfo()['environment'],
-        'debug_info' => [
+        'routing_info' => [
             'request_uri' => $_SERVER['REQUEST_URI'],
             'script_name' => $_SERVER['SCRIPT_NAME'] ?? 'not set',
             'server_name' => $_SERVER['SERVER_NAME'] ?? 'not set',
-            'server_port' => $_SERVER['SERVER_PORT'] ?? 'not set'
+            'server_port' => $_SERVER['SERVER_PORT'] ?? 'not set',
+            'method' => $_SERVER['REQUEST_METHOD']
         ]
-    ]);
+    ], 'API Health Check - All systems operational');
 }
 
 function handleApiInfo(): void
@@ -217,6 +238,7 @@ function handleApiInfo(): void
         'name' => 'Task Manager Pro API',
         'version' => Bootstrap::getAppInfo()['version'],
         'message' => 'Bienvenue sur l\'API Task Manager Pro',
+        'status' => 'operational',
         'endpoints' => [
             'health' => 'GET /api/health - Vérification de l\'état de l\'API',
             'info' => 'GET /api/info - Informations sur l\'application',
@@ -227,8 +249,8 @@ function handleApiInfo(): void
                 'refresh' => 'POST /api/auth/refresh - Renouvellement de token'
             ],
             'tasks' => [
-                'list' => 'GET /api/tasks - Liste des tâches',
-                'create' => 'POST /api/tasks - Créer une tâche',
+                'list' => 'GET /api/tasks - Liste des tâches (authentification requise)',
+                'create' => 'POST /api/tasks - Créer une tâche (authentification requise)',
                 'get' => 'GET /api/tasks/{id} - Détails d\'une tâche',
                 'update' => 'PUT /api/tasks/{id} - Modifier une tâche',
                 'delete' => 'DELETE /api/tasks/{id} - Supprimer une tâche'
@@ -237,7 +259,7 @@ function handleApiInfo(): void
                 'profile' => 'GET /api/users/profile - Profil utilisateur',
                 'update_profile' => 'PUT /api/users/profile - Modifier le profil'
             ],
-            'debug' => 'POST /api/debug - Informations de débogage'
+            'debug' => 'GET|POST /api/debug - Informations de débogage'
         ],
         'authentication' => [
             'type' => 'JWT Bearer Token',
@@ -246,17 +268,23 @@ function handleApiInfo(): void
                 'login' => 'admin ou admin@taskmanager.local',
                 'password' => 'Admin123!'
             ]
+        ],
+        'current_request' => [
+            'uri' => $_SERVER['REQUEST_URI'],
+            'method' => $_SERVER['REQUEST_METHOD'],
+            'timestamp' => date('c')
         ]
-    ]);
+    ], 'API Documentation and Status');
 }
 
 function handleDebug(): void
 {
     // Get raw input
     $rawInput = file_get_contents('php://input');
-    $headers = getallheaders();
+    $headers = function_exists('getallheaders') ? getallheaders() : [];
     
     ResponseService::success([
+        'message' => 'Debug endpoint working correctly',
         'request' => [
             'method' => $_SERVER['REQUEST_METHOD'],
             'uri' => $_SERVER['REQUEST_URI'],
@@ -266,6 +294,7 @@ function handleDebug(): void
         ],
         'content' => [
             'type' => $_SERVER['CONTENT_TYPE'] ?? 'not set',
+            'length' => strlen($rawInput),
             'raw_input' => $rawInput,
             'json_decoded' => json_decode($rawInput, true),
             'json_error' => json_last_error_msg(),
@@ -277,15 +306,21 @@ function handleDebug(): void
             'SCRIPT_FILENAME' => $_SERVER['SCRIPT_FILENAME'] ?? 'not set',
             'SERVER_NAME' => $_SERVER['SERVER_NAME'] ?? 'not set',
             'SERVER_PORT' => $_SERVER['SERVER_PORT'] ?? 'not set',
-            'REQUEST_SCHEME' => $_SERVER['REQUEST_SCHEME'] ?? 'not set'
+            'REQUEST_SCHEME' => $_SERVER['REQUEST_SCHEME'] ?? 'not set',
+            'HTTP_HOST' => $_SERVER['HTTP_HOST'] ?? 'not set'
+        ],
+        'routing_analysis' => [
+            'original_path' => parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH),
+            'api_position' => strpos(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/api'),
+            'path_segments' => explode('/', trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/'))
         ]
-    ]);
+    ], 'Debug information collected successfully');
 }
 
 function handleLogin(): void
 {
     try {
-        // CORRECTION: Support flexible login (email OR username)
+        // Support flexible login (email OR username)
         $rules = [
             'login' => 'required',  // Can be email or username
             'password' => 'required'
