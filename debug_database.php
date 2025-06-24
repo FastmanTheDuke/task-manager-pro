@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 /**
- * Diagnostic simple de la base de données
+ * Diagnostic simple de la base de données - Compatible MariaDB
  * 
  * Usage: php debug_database.php
  */
@@ -56,7 +56,7 @@ echo "   - Password: " . (empty($config['password']) ? 'VIDE' : 'CONFIGURÉ') . 
 
 try {
     // Connexion avec gestion détaillée des erreurs
-    echo "🔌 Test de connexion MySQL...\n";
+    echo "🔌 Test de connexion MySQL/MariaDB...\n";
     
     // Test 1: Connexion au serveur MySQL
     try {
@@ -65,7 +65,14 @@ try {
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
-        echo "   ✅ Connexion au serveur MySQL réussie\n";
+        echo "   ✅ Connexion au serveur MySQL/MariaDB réussie\n";
+        
+        // Détecter le type et la version
+        $stmt = $pdo->query("SELECT VERSION() as version");
+        $version = $stmt->fetch()['version'];
+        $isMariaDB = stripos($version, 'mariadb') !== false;
+        echo "   📊 Base de données: " . ($isMariaDB ? 'MariaDB' : 'MySQL') . " $version\n";
+        
     } catch (PDOException $e) {
         echo "   ❌ Erreur de connexion au serveur: " . $e->getMessage() . "\n";
         exit(1);
@@ -73,11 +80,14 @@ try {
     
     // Test 2: Vérifier que la base existe
     try {
-        $stmt = $pdo->query("SHOW DATABASES LIKE '{$config['dbname']}'");
-        if ($stmt->rowCount() > 0) {
+        $stmt = $pdo->query("SHOW DATABASES");
+        $databases = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        if (in_array($config['dbname'], $databases)) {
             echo "   ✅ Base de données '{$config['dbname']}' existe\n";
         } else {
             echo "   ❌ Base de données '{$config['dbname']}' n'existe pas\n";
+            echo "   📋 Bases disponibles: " . implode(', ', $databases) . "\n";
             exit(1);
         }
     } catch (PDOException $e) {
@@ -98,7 +108,7 @@ try {
         exit(1);
     }
     
-    // Test 4: Lister toutes les tables
+    // Test 4: Lister toutes les tables (compatible MariaDB)
     echo "📋 Tables présentes dans la base:\n";
     try {
         $stmt = $pdo->query("SHOW TABLES");
@@ -124,11 +134,10 @@ try {
         echo "\n📊 Table: $table\n";
         
         try {
-            // Vérifier existence
-            $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
-            $stmt->execute([$table]);
+            // Vérifier existence (compatible MariaDB)
+            $exists = in_array($table, $tables);
             
-            if ($stmt->rowCount() === 0) {
+            if (!$exists) {
                 echo "   ❌ Table n'existe pas\n";
                 continue;
             }
@@ -161,15 +170,25 @@ try {
     }
     
     // Test 6: Test d'insertion simple
-    echo "\n🧪 Test d'insertion dans la table users...\n";
+    echo "\n🧪 Test de l'utilisateur admin...\n";
     try {
         // Vérifier si admin existe déjà
-        $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM users WHERE username = 'admin'");
-        $stmt->execute();
+        $stmt = $pdo->query("SELECT COUNT(*) as count FROM users WHERE username = 'admin'");
         $adminCount = $stmt->fetch()['count'];
         
         if ($adminCount > 0) {
-            echo "   ℹ️ Utilisateur admin existe déjà\n";
+            echo "   ✅ Utilisateur admin existe déjà\n";
+            
+            // Afficher les détails de l'admin
+            $stmt = $pdo->query("SELECT id, username, email, role, created_at FROM users WHERE username = 'admin'");
+            $admin = $stmt->fetch();
+            echo "   👤 Détails admin:\n";
+            echo "      - ID: {$admin['id']}\n";
+            echo "      - Username: {$admin['username']}\n";
+            echo "      - Email: {$admin['email']}\n";
+            echo "      - Role: {$admin['role']}\n";
+            echo "      - Créé: {$admin['created_at']}\n";
+            
         } else {
             echo "   ⚠️ Utilisateur admin manquant - tentative de création...\n";
             
@@ -198,13 +217,42 @@ try {
             }
         }
     } catch (PDOException $e) {
-        echo "   ❌ Erreur lors du test d'insertion: " . $e->getMessage() . "\n";
+        echo "   ❌ Erreur lors du test admin: " . $e->getMessage() . "\n";
+    }
+    
+    // Test 7: Vérifier les données de base
+    echo "\n📋 Vérification des données de base...\n";
+    try {
+        if (in_array('tags', $tables)) {
+            $stmt = $pdo->query("SELECT COUNT(*) as count FROM tags");
+            $tagCount = $stmt->fetch()['count'];
+            echo "   🏷️ Tags: $tagCount enregistrements\n";
+            
+            if ($tagCount > 0) {
+                $stmt = $pdo->query("SELECT name FROM tags LIMIT 5");
+                $tags = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                echo "      Exemples: " . implode(', ', $tags) . "\n";
+            }
+        }
+    } catch (PDOException $e) {
+        echo "   ❌ Erreur lors de la vérification des données: " . $e->getMessage() . "\n";
     }
     
     echo "\n🎯 RÉSUMÉ:\n";
-    echo "✅ Connexion MySQL: OK\n";
+    echo "✅ Connexion MySQL/MariaDB: OK\n";
     echo "✅ Base de données: OK\n";
     echo "✅ Tables: " . (empty($tables) ? "MANQUANTES" : count($tables) . " présentes") . "\n";
+    
+    // Compteur des tables importantes présentes
+    $presentTables = array_intersect($importantTables, $tables);
+    echo "✅ Tables principales: " . count($presentTables) . "/" . count($importantTables) . " présentes\n";
+    
+    if (count($presentTables) == count($importantTables)) {
+        echo "🎉 Toutes les tables principales sont présentes!\n";
+    } else {
+        $missingTables = array_diff($importantTables, $presentTables);
+        echo "⚠️ Tables manquantes: " . implode(', ', $missingTables) . "\n";
+    }
     
     // Test final de connexion depuis l'API
     echo "\n🔧 TESTS RECOMMANDÉS:\n";
