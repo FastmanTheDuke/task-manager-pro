@@ -50,7 +50,6 @@ class ResponseService {
         
         // Log l'erreur si c'est une erreur serveur
         if ($status >= 500) {
-            // CORRECTION : S'assurer qu'on logue une string propre
             error_log("HTTP $status: " . $cleanMessage);
             if ($errors) {
                 error_log("Errors: " . json_encode($errors));
@@ -61,7 +60,7 @@ class ResponseService {
     }
     
     /**
-     * NOUVELLE MÉTHODE : Nettoie et convertit le message en string
+     * MÉTHODE CORRIGÉE : Nettoie et convertit le message en string
      */
     private static function sanitizeMessage($message) {
         if (is_string($message)) {
@@ -69,8 +68,33 @@ class ResponseService {
         }
         
         if (is_array($message)) {
-            // Si c'est un array, on joint les valeurs
-            return 'Erreur de validation: ' . implode(', ', array_values($message));
+            // CORRECTION : Gestion récursive des arrays imbriqués
+            $flattenedMessages = [];
+            
+            foreach ($message as $key => $value) {
+                if (is_array($value)) {
+                    // Si c'est un array imbriqué, on le traite récursivement
+                    foreach ($value as $nestedMessage) {
+                        if (is_string($nestedMessage)) {
+                            $flattenedMessages[] = $nestedMessage;
+                        } elseif (is_array($nestedMessage)) {
+                            $flattenedMessages[] = implode(', ', array_filter($nestedMessage, 'is_string'));
+                        } else {
+                            $flattenedMessages[] = (string)$nestedMessage;
+                        }
+                    }
+                } elseif (is_string($value)) {
+                    $flattenedMessages[] = $value;
+                } else {
+                    $flattenedMessages[] = (string)$value;
+                }
+            }
+            
+            if (!empty($flattenedMessages)) {
+                return 'Erreur de validation: ' . implode('; ', $flattenedMessages);
+            } else {
+                return 'Erreur de validation inconnue';
+            }
         }
         
         if (is_object($message)) {
@@ -109,7 +133,9 @@ class ResponseService {
     }
     
     public static function validation($errors, $message = 'Erreur de validation') {
-        self::error($message, 422, $errors);
+        // CORRECTION : S'assurer que $message est une string propre
+        $cleanMessage = self::sanitizeMessage($message);
+        self::error($cleanMessage, 422, $errors);
     }
     
     public static function paginated($data, $total, $page, $perPage, $message = 'Données récupérées avec succès') {
