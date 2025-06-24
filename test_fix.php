@@ -140,7 +140,7 @@ if (!extension_loaded('pdo_mysql')) {
             echo colorize("   ✅ Test de requête réussi!", 'green') . "\n";
         }
         
-        // Vérifier les tables
+        // Vérifier les tables avec gestion d'erreur détaillée
         echo "   Vérification des tables...\n";
         $tables = ['users', 'projects', 'tasks'];
         foreach ($tables as $table) {
@@ -148,10 +148,21 @@ if (!extension_loaded('pdo_mysql')) {
                 $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
                 $stmt->execute([$table]);
                 $exists = $stmt->rowCount() > 0;
-                $status = $exists ? colorize('✅ EXISTS', 'green') : colorize('❌ MISSING', 'red');
-                echo "     - $table: $status\n";
-            } catch (Exception $e) {
-                echo "     - $table: " . colorize('❌ ERROR', 'red') . "\n";
+                
+                if ($exists) {
+                    // Compter les enregistrements
+                    try {
+                        $countStmt = $pdo->query("SELECT COUNT(*) as count FROM `$table`");
+                        $count = $countStmt->fetch()['count'];
+                        echo "     - $table: " . colorize("✅ EXISTS ($count records)", 'green') . "\n";
+                    } catch (PDOException $countError) {
+                        echo "     - $table: " . colorize("⚠️ EXISTS but count failed: " . $countError->getMessage(), 'yellow') . "\n";
+                    }
+                } else {
+                    echo "     - $table: " . colorize('❌ MISSING', 'red') . "\n";
+                }
+            } catch (PDOException $e) {
+                echo "     - $table: " . colorize('❌ ERROR: ' . $e->getMessage(), 'red') . "\n";
             }
         }
         
@@ -159,7 +170,10 @@ if (!extension_loaded('pdo_mysql')) {
         
     } catch (PDOException $e) {
         echo colorize("   ❌ Erreur de connexion: " . $e->getMessage(), 'red') . "\n";
-        echo "   Vérifiez votre configuration .env et que MySQL est démarré.\n";
+        echo "   💡 Suggestions:\n";
+        echo "     1. Vérifiez que MySQL est démarré\n";
+        echo "     2. Vérifiez votre configuration .env\n";
+        echo "     3. Lancez: php debug_database.php pour plus de détails\n";
     } catch (Exception $e) {
         echo colorize("   ❌ Erreur: " . $e->getMessage(), 'red') . "\n";
     }
@@ -176,7 +190,11 @@ if (!empty($missingExtensions)) {
     }
 } else {
     echo colorize("   ✅ Extensions OK - Prêt à tester l'application!", 'green') . "\n";
-    echo "\n   🚀 COMMANDES DE TEST:\n";
+    echo "\n   🔍 DIAGNOSTIC APPROFONDI:\n";
+    echo "   Si vous voyez des erreurs de tables, lancez:\n";
+    echo "   " . colorize("php debug_database.php", 'blue') . "\n\n";
+    
+    echo "   🚀 COMMANDES DE TEST:\n";
     echo "   1. Démarrer le serveur:\n";
     echo "      " . colorize("cd backend && php -S localhost:8000", 'blue') . "\n\n";
     echo "   2. Tester l'API (dans un autre terminal):\n";
@@ -204,3 +222,6 @@ echo "\n" . colorize("💡 PROBLÈME RÉSOLU:", 'blue') . "\n";
 echo "✅ L'erreur PDO::MYSQL_ATTR_INIT_COMMAND a été corrigée\n";
 echo "✅ La connexion utilise maintenant des requêtes SQL standard\n";
 echo "✅ L'application est compatible avec toutes les versions de PHP\n";
+
+echo "\n" . colorize("🔧 EN CAS DE PROBLÈME DE TABLES:", 'yellow') . "\n";
+echo "   Lancez: " . colorize("php debug_database.php", 'blue') . " pour un diagnostic complet\n";
