@@ -14,6 +14,7 @@ use TaskManager\Services\ValidationService;
 use TaskManager\Middleware\AuthMiddleware;
 use TaskManager\Middleware\CorsMiddleware;
 use TaskManager\Middleware\ValidationMiddleware;
+use TaskManager\Controllers\DiagnosticController;
 use TaskManager\Models\Task;
 use TaskManager\Models\User;
 use TaskManager\Config\JWTManager;
@@ -88,9 +89,22 @@ try {
             handleHealthCheck();
             break;
             
-        // Database diagnostic
+        // Enhanced diagnostic endpoints using the new controller
         case $path === '/api/diagnostic' && $requestMethod === 'GET':
-            handleDiagnostic();
+        case $path === '/api/diagnostic/system' && $requestMethod === 'GET':
+            DiagnosticController::systemCheck();
+            break;
+            
+        case $path === '/api/diagnostic/database' && $requestMethod === 'GET':
+            DiagnosticController::databaseCheck();
+            break;
+            
+        case $path === '/api/diagnostic/auth' && $requestMethod === 'GET':
+            DiagnosticController::authCheck();
+            break;
+            
+        case $path === '/api/diagnostic/api' && $requestMethod === 'GET':
+            DiagnosticController::apiCheck();
             break;
             
         // Debug endpoint
@@ -127,17 +141,17 @@ try {
             handleCreateTask();
             break;
             
-        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'GET':
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'GET':
             AuthMiddleware::handle();
             handleGetTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'PUT':
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'PUT':
             AuthMiddleware::handle();
             handleUpdateTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
             AuthMiddleware::handle();
             handleDeleteTask($matches[1]);
             break;
@@ -184,7 +198,11 @@ try {
                     ],
                     'available_endpoints' => [
                         'GET /api/health - API status',
-                        'GET /api/diagnostic - Database and PHP diagnostics',
+                        'GET /api/diagnostic - Complete system diagnostic',
+                        'GET /api/diagnostic/system - System & PHP diagnostic',
+                        'GET /api/diagnostic/database - Database diagnostic',
+                        'GET /api/diagnostic/auth - Authentication diagnostic',
+                        'GET /api/diagnostic/api - API status',
                         'GET /api/info - App information', 
                         'GET /api - List all endpoints',
                         'POST /api/auth/login - Login',
@@ -239,51 +257,6 @@ function handleHealthCheck(): void
     ], 'API Health Check - All systems operational');
 }
 
-function handleDiagnostic(): void
-{
-    try {
-        $phpExtensions = [
-            'pdo' => extension_loaded('pdo'),
-            'pdo_mysql' => extension_loaded('pdo_mysql'),
-            'json' => extension_loaded('json'),
-            'mbstring' => extension_loaded('mbstring'),
-            'openssl' => extension_loaded('openssl')
-        ];
-        
-        $dbRequirements = Connection::checkRequirements();
-        $dbConfig = Connection::getConfig();
-        
-        $dbConnectionTest = false;
-        $dbError = null;
-        
-        try {
-            $dbConnectionTest = Connection::testConnection();
-        } catch (\Exception $e) {
-            $dbError = $e->getMessage();
-        }
-        
-        ResponseService::success([
-            'php_version' => PHP_VERSION,
-            'extensions' => $phpExtensions,
-            'database' => [
-                'requirements' => $dbRequirements,
-                'config' => $dbConfig,
-                'connection_test' => $dbConnectionTest,
-                'connection_error' => $dbError
-            ],
-            'environment' => [
-                'os' => PHP_OS,
-                'memory_limit' => ini_get('memory_limit'),
-                'max_execution_time' => ini_get('max_execution_time'),
-                'upload_max_filesize' => ini_get('upload_max_filesize')
-            ]
-        ], 'System diagnostic complete');
-        
-    } catch (\Exception $e) {
-        ResponseService::error('Diagnostic error: ' . $e->getMessage(), 500);
-    }
-}
-
 function handleApiInfo(): void
 {
     ResponseService::success([
@@ -293,7 +266,12 @@ function handleApiInfo(): void
         'status' => 'operational',
         'endpoints' => [
             'health' => 'GET /api/health - Vérification de l\'état de l\'API',
-            'diagnostic' => 'GET /api/diagnostic - Diagnostic système et base de données',
+            'diagnostic' => [
+                'system' => 'GET /api/diagnostic/system - Diagnostic système complet',
+                'database' => 'GET /api/diagnostic/database - Diagnostic base de données',
+                'auth' => 'GET /api/diagnostic/auth - Diagnostic authentification',
+                'api' => 'GET /api/diagnostic/api - Statut de l\'API'
+            ],
             'info' => 'GET /api/info - Informations sur l\'application',
             'auth' => [
                 'login' => 'POST /api/auth/login - Connexion (email ou username)',
@@ -535,7 +513,7 @@ function handleTokenRefresh(): void
 {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     
-    if (!preg_match('/Bearer\\s+(.*)$/i', $authHeader, $matches)) {
+    if (!preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
         ResponseService::error('Token manquant', 401);
     }
     
