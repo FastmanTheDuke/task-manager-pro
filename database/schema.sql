@@ -18,7 +18,7 @@ USE `task_manager_pro`;
 -- Table des utilisateurs
 -- --------------------------------------------------------
 
-CREATE TABLE `users` (
+CREATE TABLE IF NOT EXISTS `users` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `username` VARCHAR(50) NOT NULL,
   `email` VARCHAR(100) NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE `users` (
 -- Table des projets
 -- --------------------------------------------------------
 
-CREATE TABLE `projects` (
+CREATE TABLE IF NOT EXISTS `projects` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(100) NOT NULL,
   `description` TEXT,
@@ -69,7 +69,7 @@ CREATE TABLE `projects` (
 -- Table des membres de projet
 -- --------------------------------------------------------
 
-CREATE TABLE `project_members` (
+CREATE TABLE IF NOT EXISTS `project_members` (
   `project_id` INT(11) UNSIGNED NOT NULL,
   `user_id` INT(11) UNSIGNED NOT NULL,
   `role` ENUM('viewer', 'member', 'admin') DEFAULT 'member',
@@ -86,7 +86,7 @@ CREATE TABLE `project_members` (
 -- Table des tâches
 -- --------------------------------------------------------
 
-CREATE TABLE `tasks` (
+CREATE TABLE IF NOT EXISTS `tasks` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `title` VARCHAR(200) NOT NULL,
   `description` TEXT,
@@ -130,7 +130,7 @@ CREATE TABLE `tasks` (
 -- Table des tags
 -- --------------------------------------------------------
 
-CREATE TABLE `tags` (
+CREATE TABLE IF NOT EXISTS `tags` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(50) NOT NULL,
   `color` VARCHAR(7) DEFAULT '#cccccc',
@@ -154,7 +154,7 @@ CREATE TABLE `tags` (
 -- Table de relation tâches-tags
 -- --------------------------------------------------------
 
-CREATE TABLE `task_tags` (
+CREATE TABLE IF NOT EXISTS `task_tags` (
   `task_id` INT(11) UNSIGNED NOT NULL,
   `tag_id` INT(11) UNSIGNED NOT NULL,
   `added_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -170,7 +170,7 @@ CREATE TABLE `task_tags` (
 -- Table des entrées de temps
 -- --------------------------------------------------------
 
-CREATE TABLE `time_entries` (
+CREATE TABLE IF NOT EXISTS `time_entries` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `task_id` INT(11) UNSIGNED NOT NULL,
   `user_id` INT(11) UNSIGNED NOT NULL,
@@ -197,7 +197,7 @@ CREATE TABLE `time_entries` (
 -- Table des commentaires
 -- --------------------------------------------------------
 
-CREATE TABLE `comments` (
+CREATE TABLE IF NOT EXISTS `comments` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `task_id` INT(11) UNSIGNED NOT NULL,
   `user_id` INT(11) UNSIGNED NOT NULL,
@@ -222,7 +222,7 @@ CREATE TABLE `comments` (
 -- Table des pièces jointes
 -- --------------------------------------------------------
 
-CREATE TABLE `attachments` (
+CREATE TABLE IF NOT EXISTS `attachments` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `task_id` INT(11) UNSIGNED DEFAULT NULL,
   `comment_id` INT(11) UNSIGNED DEFAULT NULL,
@@ -249,7 +249,7 @@ CREATE TABLE `attachments` (
 -- Table des notifications
 -- --------------------------------------------------------
 
-CREATE TABLE `notifications` (
+CREATE TABLE IF NOT EXISTS `notifications` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` INT(11) UNSIGNED NOT NULL,
   `type` VARCHAR(50) NOT NULL,
@@ -272,7 +272,7 @@ CREATE TABLE `notifications` (
 -- Table de l'historique des activités
 -- --------------------------------------------------------
 
-CREATE TABLE `activity_logs` (
+CREATE TABLE IF NOT EXISTS `activity_logs` (
   `id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id` INT(11) UNSIGNED NOT NULL,
   `action` VARCHAR(50) NOT NULL,
@@ -296,7 +296,7 @@ CREATE TABLE `activity_logs` (
 -- Table des sessions
 -- --------------------------------------------------------
 
-CREATE TABLE `sessions` (
+CREATE TABLE IF NOT EXISTS `sessions` (
   `id` VARCHAR(128) NOT NULL,
   `user_id` INT(11) UNSIGNED DEFAULT NULL,
   `ip_address` VARCHAR(45) DEFAULT NULL,
@@ -314,7 +314,7 @@ CREATE TABLE `sessions` (
 -- Table des préférences utilisateur
 -- --------------------------------------------------------
 
-CREATE TABLE `user_preferences` (
+CREATE TABLE IF NOT EXISTS `user_preferences` (
   `user_id` INT(11) UNSIGNED NOT NULL,
   `key` VARCHAR(50) NOT NULL,
   `value` TEXT,
@@ -325,47 +325,7 @@ CREATE TABLE `user_preferences` (
     REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- --------------------------------------------------------
--- Vues pour les rapports
--- --------------------------------------------------------
 
--- Vue des tâches avec informations complètes
-CREATE VIEW `v_tasks_full` AS
-SELECT 
-  t.*,
-  u1.username as creator_name,
-  u2.username as assignee_name,
-  p.name as project_name,
-  COUNT(DISTINCT te.id) as time_entries_count,
-  COALESCE(SUM(te.duration), 0) as total_time_seconds,
-  COUNT(DISTINCT c.id) as comments_count,
-  COUNT(DISTINCT tt.tag_id) as tags_count
-FROM tasks t
-LEFT JOIN users u1 ON t.creator_id = u1.id
-LEFT JOIN users u2 ON t.assignee_id = u2.id
-LEFT JOIN projects p ON t.project_id = p.id
-LEFT JOIN time_entries te ON t.id = te.task_id
-LEFT JOIN comments c ON t.id = c.task_id
-LEFT JOIN task_tags tt ON t.id = tt.task_id
-GROUP BY t.id;
-
--- Vue des statistiques utilisateur
-CREATE VIEW `v_user_stats` AS
-SELECT 
-  u.id,
-  u.username,
-  COUNT(DISTINCT t1.id) as tasks_created,
-  COUNT(DISTINCT t2.id) as tasks_assigned,
-  COUNT(DISTINCT CASE WHEN t2.status = 'completed' THEN t2.id END) as tasks_completed,
-  COUNT(DISTINCT te.id) as time_entries,
-  COALESCE(SUM(te.duration), 0) as total_time_seconds,
-  COUNT(DISTINCT c.id) as comments_made
-FROM users u
-LEFT JOIN tasks t1 ON u.id = t1.creator_id
-LEFT JOIN tasks t2 ON u.id = t2.assignee_id
-LEFT JOIN time_entries te ON u.id = te.user_id
-LEFT JOIN comments c ON u.id = c.user_id
-GROUP BY u.id;
 
 -- --------------------------------------------------------
 -- Index supplémentaires pour les performances
