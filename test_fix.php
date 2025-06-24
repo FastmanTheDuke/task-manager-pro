@@ -25,10 +25,23 @@ function colorize($text, $color) {
 // Test 1: Vérifier les extensions PHP
 echo "1️⃣ Vérification des extensions PHP...\n";
 $extensions = ['pdo', 'pdo_mysql', 'json', 'mbstring'];
+$missingExtensions = [];
+
 foreach ($extensions as $ext) {
     $loaded = extension_loaded($ext);
     $status = $loaded ? colorize('✅ ACTIVÉE', 'green') : colorize('❌ MANQUANTE', 'red');
     echo "   - $ext: $status\n";
+    
+    if (!$loaded) {
+        $missingExtensions[] = $ext;
+    }
+}
+
+if (!empty($missingExtensions)) {
+    echo "\n" . colorize("⚠️ ATTENTION: Extensions manquantes détectées!", 'yellow') . "\n";
+    foreach ($missingExtensions as $ext) {
+        echo "   - $ext\n";
+    }
 }
 echo "\n";
 
@@ -48,89 +61,122 @@ foreach ($constants as $const => $exists) {
 }
 echo "\n";
 
-// Test 3: Tester la classe Connection
-echo "3️⃣ Test de la classe Connection corrigée...\n";
-try {
-    require_once __DIR__ . '/Bootstrap.php';
+// Test 3: Diagnostic spécifique pdo_mysql
+echo "3️⃣ Diagnostic pdo_mysql...\n";
+if (!extension_loaded('pdo_mysql')) {
+    echo colorize("   ❌ PROBLÈME IDENTIFIÉ: L'extension pdo_mysql n'est pas installée!", 'red') . "\n";
+    echo "   Cette extension est OBLIGATOIRE pour connecter PHP à MySQL.\n\n";
     
-    // Tester les requirements
-    echo "   Vérification des prérequis...\n";
-    $requirements = \TaskManager\Database\Connection::checkRequirements();
-    foreach ($requirements as $req => $status) {
-        $statusText = $status ? colorize('✅ OK', 'green') : colorize('❌ NOK', 'red');
-        echo "     - $req: $statusText\n";
-    }
+    echo "   🛠️ SOLUTIONS par environnement:\n\n";
     
-    // Tester la configuration
-    echo "   Configuration de la base de données...\n";
-    $config = \TaskManager\Database\Connection::getConfig();
-    echo "     - Host: {$config['host']}\n";
-    echo "     - Database: {$config['dbname']}\n";
-    echo "     - User: {$config['username']}\n";
-    echo "     - Charset: {$config['charset']}\n";
-    $pwdStatus = $config['password_set'] ? colorize('✅ CONFIGURÉ', 'green') : colorize('⚠️ VIDE', 'yellow');
-    echo "     - Password: $pwdStatus\n";
+    // Windows avec XAMPP
+    echo colorize("   📁 XAMPP (Windows):", 'blue') . "\n";
+    echo "     1. Ouvrir le fichier: C:\\xampp\\php\\php.ini\n";
+    echo "     2. Rechercher: ;extension=pdo_mysql\n";
+    echo "     3. Enlever le ';' pour obtenir: extension=pdo_mysql\n";
+    echo "     4. Redémarrer Apache\n\n";
     
-    // Test de connexion
-    echo "   Test de connexion...\n";
-    $connectionTest = \TaskManager\Database\Connection::testConnection();
-    $connStatus = $connectionTest ? colorize('✅ CONNECTÉE', 'green') : colorize('❌ ÉCHEC', 'red');
-    echo "     - Connexion: $connStatus\n";
+    // Windows avec WampServer
+    echo colorize("   📁 WampServer (Windows):", 'blue') . "\n";
+    echo "     1. Clic droit sur l'icône WampServer\n";
+    echo "     2. PHP > PHP extensions > pdo_mysql (cocher)\n";
+    echo "     3. Redémarrer tous les services\n\n";
     
-} catch (Exception $e) {
-    echo colorize("   ❌ ERREUR: " . $e->getMessage(), 'red') . "\n";
+    // Linux
+    echo colorize("   🐧 Linux:", 'blue') . "\n";
+    echo "     Ubuntu/Debian: sudo apt-get install php-mysql\n";
+    echo "     CentOS/RHEL: sudo yum install php-mysql\n";
+    echo "     Redémarrer Apache/Nginx\n\n";
+    
+    // macOS
+    echo colorize("   🍎 macOS:", 'blue') . "\n";
+    echo "     Homebrew: brew install php (inclut pdo_mysql)\n";
+    echo "     MAMP: Généralement inclus par défaut\n\n";
+    
+    echo colorize("   ⚡ VÉRIFICATION RAPIDE:", 'yellow') . "\n";
+    echo "   Après installation, testez avec: php -m | grep pdo_mysql\n\n";
+    
+} else {
+    echo colorize("   ✅ Extension pdo_mysql correctement installée!", 'green') . "\n\n";
 }
-echo "\n";
 
-// Test 4: Test des endpoints de diagnostic
-echo "4️⃣ Test des nouveaux endpoints de diagnostic...\n";
-
-$endpoints = [
-    'health' => 'http://localhost:8000/api/health',
-    'diagnostic-system' => 'http://localhost:8000/api/diagnostic/system',
-    'diagnostic-database' => 'http://localhost:8000/api/diagnostic/database',
-    'diagnostic-auth' => 'http://localhost:8000/api/diagnostic/auth'
-];
-
-foreach ($endpoints as $name => $url) {
-    echo "   Testing $name...\n";
-    
-    // Test simple avec curl si disponible
-    if (function_exists('curl_init')) {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+// Test 4: Test de la classe Connection (si possible)
+echo "4️⃣ Test de la classe Connection...\n";
+$bootstrapPath = __DIR__ . '/backend/Bootstrap.php';
+if (file_exists($bootstrapPath)) {
+    try {
+        require_once $bootstrapPath;
         
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        
-        if ($response !== false && $httpCode === 200) {
-            echo "     " . colorize("✅ $url - OK", 'green') . "\n";
+        if (extension_loaded('pdo_mysql')) {
+            // Tester les requirements
+            echo "   Vérification des prérequis...\n";
+            $requirements = \TaskManager\Database\Connection::checkRequirements();
+            foreach ($requirements as $req => $status) {
+                $statusText = $status ? colorize('✅ OK', 'green') : colorize('❌ NOK', 'red');
+                echo "     - $req: $statusText\n";
+            }
+            
+            // Tester la configuration
+            echo "   Configuration de la base de données...\n";
+            $config = \TaskManager\Database\Connection::getConfig();
+            echo "     - Host: {$config['host']}\n";
+            echo "     - Database: {$config['dbname']}\n";
+            echo "     - User: {$config['username']}\n";
+            echo "     - Charset: {$config['charset']}\n";
+            $pwdStatus = $config['password_set'] ? colorize('✅ CONFIGURÉ', 'green') : colorize('⚠️ VIDE', 'yellow');
+            echo "     - Password: $pwdStatus\n";
+            
+            // Test de connexion
+            echo "   Test de connexion...\n";
+            $connectionTest = \TaskManager\Database\Connection::testConnection();
+            $connStatus = $connectionTest ? colorize('✅ CONNECTÉE', 'green') : colorize('❌ ÉCHEC', 'red');
+            echo "     - Connexion: $connStatus\n";
         } else {
-            echo "     " . colorize("⚠️ $url - Server not running (start with: php -S localhost:8000)", 'yellow') . "\n";
+            echo colorize("   ⚠️ Test de connexion ignoré - pdo_mysql non disponible", 'yellow') . "\n";
         }
-    } else {
-        echo "     " . colorize("ℹ️ cURL non disponible - testez manuellement: $url", 'blue') . "\n";
+        
+    } catch (Exception $e) {
+        echo colorize("   ❌ ERREUR: " . $e->getMessage(), 'red') . "\n";
     }
+} else {
+    echo colorize("   ⚠️ Bootstrap.php non trouvé à: $bootstrapPath", 'yellow') . "\n";
+    echo "   Exécutez ce script depuis la racine du projet.\n";
 }
 echo "\n";
 
-// Test 5: Recommandations finales
-echo "5️⃣ Recommandations...\n";
-echo "   Pour tester complètement:\n";
-echo "   1. Démarrez le serveur: " . colorize("cd backend && php -S localhost:8000", 'blue') . "\n";
-echo "   2. Testez l'API de santé: " . colorize("curl http://localhost:8000/api/health", 'blue') . "\n";
-echo "   3. Testez le diagnostic: " . colorize("curl http://localhost:8000/api/diagnostic/system", 'blue') . "\n";
-echo "   4. Testez le login: " . colorize("curl -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"login\":\"admin\",\"password\":\"Admin123!\"}'", 'blue') . "\n";
-echo "\n";
+// Test 5: Instructions de résolution
+echo "5️⃣ Plan d'action recommandé...\n";
 
-echo colorize("🎉 Test des corrections terminé !", 'green') . "\n";
-echo "Les principales améliorations:\n";
-echo "✅ Correction de l'erreur PDO::MYSQL_ATTR_INIT_COMMAND\n";
-echo "✅ Gestion compatible des options PDO\n";
-echo "✅ Nouveau système de diagnostic complet\n";
-echo "✅ Meilleure gestion d'erreurs\n";
-echo "✅ Tests automatisés\n\n";
+if (in_array('pdo_mysql', $missingExtensions)) {
+    echo colorize("   🚨 PRIORITÉ 1: Installer pdo_mysql", 'red') . "\n";
+    echo "   Sans cette extension, l'application ne peut pas fonctionner.\n";
+    echo "   Suivez les instructions ci-dessus selon votre environnement.\n\n";
+    
+    echo colorize("   📋 APRÈS installation de pdo_mysql:", 'blue') . "\n";
+    echo "   1. Relancez ce test: php test_fix.php\n";
+    echo "   2. Démarrez le serveur: cd backend && php -S localhost:8000\n";
+    echo "   3. Testez l'API: curl http://localhost:8000/api/health\n";
+    echo "   4. Testez le login: curl -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"login\":\"admin\",\"password\":\"Admin123!\"}'\n\n";
+} else {
+    echo colorize("   ✅ Extensions OK - Testez l'application:", 'green') . "\n";
+    echo "   1. Démarrez le serveur: cd backend && php -S localhost:8000\n";
+    echo "   2. Testez l'API: curl http://localhost:8000/api/health\n";
+    echo "   3. Testez le diagnostic: curl http://localhost:8000/api/diagnostic/system\n";
+    echo "   4. Testez le login: curl -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"login\":\"admin\",\"password\":\"Admin123!\"}'\n\n";
+}
+
+// Résumé final
+echo colorize("📊 RÉSUMÉ:", 'blue') . "\n";
+$totalExtensions = count($extensions);
+$activeExtensions = $totalExtensions - count($missingExtensions);
+echo "✅ Extensions actives: $activeExtensions/$totalExtensions\n";
+
+if (empty($missingExtensions)) {
+    echo colorize("🎉 Toutes les extensions requises sont installées!", 'green') . "\n";
+} else {
+    echo colorize("⚠️ Extensions manquantes: " . implode(', ', $missingExtensions), 'yellow') . "\n";
+}
+
+echo "\n" . colorize("💡 L'erreur PDO::MYSQL_ATTR_INIT_COMMAND était causée par l'absence de pdo_mysql.", 'blue') . "\n";
+echo colorize("   Nos corrections permettent à l'application de fonctionner même sans cette constante,", 'blue') . "\n";
+echo colorize("   mais l'extension pdo_mysql reste obligatoire pour se connecter à MySQL.", 'blue') . "\n";
