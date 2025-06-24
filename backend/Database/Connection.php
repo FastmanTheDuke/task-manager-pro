@@ -46,6 +46,11 @@ class Connection
     private static function createConnection(): void
     {
         try {
+            // CORRECTION: Vérifier si PDO MySQL est disponible
+            if (!extension_loaded('pdo_mysql')) {
+                throw new Exception("PDO MySQL extension is not loaded. Please install or enable php-pdo-mysql extension.");
+            }
+            
             $dsn = sprintf(
                 'mysql:host=%s;dbname=%s;charset=%s',
                 self::$config['host'],
@@ -53,13 +58,17 @@ class Connection
                 self::$config['charset']
             );
             
-            // CORRECTION: Utilisation de la concaténation au lieu de l'interpolation défaillante
+            // CORRECTION: Options PDO simplifiées et compatibles
             $options = [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,
-                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES " . self::$config['charset']
             ];
+            
+            // CORRECTION: Ajouter l'option MySQL seulement si elle existe
+            if (defined('PDO::MYSQL_ATTR_INIT_COMMAND')) {
+                $options[PDO::MYSQL_ATTR_INIT_COMMAND] = "SET NAMES " . self::$config['charset'];
+            }
             
             self::$instance = new PDO(
                 $dsn,
@@ -67,6 +76,11 @@ class Connection
                 self::$config['password'],
                 $options
             );
+            
+            // CORRECTION: Fallback pour définir le charset si la constante n'existe pas
+            if (!defined('PDO::MYSQL_ATTR_INIT_COMMAND')) {
+                self::$instance->exec("SET NAMES " . self::$config['charset']);
+            }
             
         } catch (PDOException $e) {
             error_log("Database connection failed: " . $e->getMessage());
@@ -114,7 +128,23 @@ class Connection
             'dbname' => self::$config['dbname'],
             'username' => self::$config['username'],
             'charset' => self::$config['charset'],
-            'password_set' => !empty(self::$config['password'])
+            'password_set' => !empty(self::$config['password']),
+            'pdo_mysql_loaded' => extension_loaded('pdo_mysql'),
+            'mysql_attr_available' => defined('PDO::MYSQL_ATTR_INIT_COMMAND')
         ];
+    }
+    
+    /**
+     * Check if MySQL connection requirements are met
+     */
+    public static function checkRequirements(): array
+    {
+        $checks = [
+            'pdo_extension' => extension_loaded('pdo'),
+            'pdo_mysql_extension' => extension_loaded('pdo_mysql'),
+            'mysql_attr_constant' => defined('PDO::MYSQL_ATTR_INIT_COMMAND')
+        ];
+        
+        return $checks;
     }
 }
