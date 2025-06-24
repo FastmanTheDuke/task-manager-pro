@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 /**
- * Script de test rapide pour vérifier le fix PDO
+ * Script de test rapide pour vérifier le fix PDO - Compatible MariaDB
  * 
  * Usage: php test_fix.php
  */
@@ -134,36 +134,56 @@ if (!extension_loaded('pdo_mysql')) {
         
         echo colorize("   ✅ Connexion PDO réussie!", 'green') . "\n";
         
+        // Détecter le type de base de données
+        $stmt = $pdo->query("SELECT VERSION() as version");
+        $version = $stmt->fetch()['version'];
+        $isMariaDB = stripos($version, 'mariadb') !== false;
+        echo "   📊 Base de données: " . ($isMariaDB ? 'MariaDB' : 'MySQL') . " $version\n";
+        
         // Test de requête simple
         $stmt = $pdo->query("SELECT 1 as test");
         if ($stmt && $stmt->fetch()['test'] == 1) {
             echo colorize("   ✅ Test de requête réussi!", 'green') . "\n";
         }
         
-        // Vérifier les tables avec gestion d'erreur détaillée
+        // Vérifier les tables avec syntaxe compatible MariaDB
         echo "   Vérification des tables...\n";
         $tables = ['users', 'projects', 'tasks'];
-        foreach ($tables as $table) {
-            try {
-                $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
-                $stmt->execute([$table]);
-                $exists = $stmt->rowCount() > 0;
-                
-                if ($exists) {
-                    // Compter les enregistrements
-                    try {
-                        $countStmt = $pdo->query("SELECT COUNT(*) as count FROM `$table`");
-                        $count = $countStmt->fetch()['count'];
-                        echo "     - $table: " . colorize("✅ EXISTS ($count records)", 'green') . "\n";
-                    } catch (PDOException $countError) {
-                        echo "     - $table: " . colorize("⚠️ EXISTS but count failed: " . $countError->getMessage(), 'yellow') . "\n";
+        
+        // Récupérer toutes les tables d'abord
+        try {
+            $stmt = $pdo->query("SHOW TABLES");
+            $allTables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            
+            foreach ($tables as $table) {
+                try {
+                    // Vérifier si la table existe dans la liste
+                    $exists = in_array($table, $allTables);
+                    
+                    if ($exists) {
+                        // Compter les enregistrements
+                        try {
+                            $countStmt = $pdo->query("SELECT COUNT(*) as count FROM `$table`");
+                            $count = $countStmt->fetch()['count'];
+                            echo "     - $table: " . colorize("✅ EXISTS ($count records)", 'green') . "\n";
+                        } catch (PDOException $countError) {
+                            echo "     - $table: " . colorize("⚠️ EXISTS but count failed: " . $countError->getMessage(), 'yellow') . "\n";
+                        }
+                    } else {
+                        echo "     - $table: " . colorize('❌ MISSING', 'red') . "\n";
                     }
-                } else {
-                    echo "     - $table: " . colorize('❌ MISSING', 'red') . "\n";
+                } catch (PDOException $e) {
+                    echo "     - $table: " . colorize('❌ ERROR: ' . $e->getMessage(), 'red') . "\n";
                 }
-            } catch (PDOException $e) {
-                echo "     - $table: " . colorize('❌ ERROR: ' . $e->getMessage(), 'red') . "\n";
             }
+            
+            echo "\n   📋 Toutes les tables présentes (" . count($allTables) . "):\n";
+            foreach ($allTables as $table) {
+                echo "     - $table\n";
+            }
+            
+        } catch (PDOException $e) {
+            echo "     ❌ Erreur lors du listage des tables: " . $e->getMessage() . "\n";
         }
         
         echo "\n" . colorize("🎉 SUCCÈS! La base de données est accessible et fonctionnelle!", 'green') . "\n";
@@ -171,7 +191,7 @@ if (!extension_loaded('pdo_mysql')) {
     } catch (PDOException $e) {
         echo colorize("   ❌ Erreur de connexion: " . $e->getMessage(), 'red') . "\n";
         echo "   💡 Suggestions:\n";
-        echo "     1. Vérifiez que MySQL est démarré\n";
+        echo "     1. Vérifiez que MySQL/MariaDB est démarré\n";
         echo "     2. Vérifiez votre configuration .env\n";
         echo "     3. Lancez: php debug_database.php pour plus de détails\n";
     } catch (Exception $e) {
@@ -221,7 +241,7 @@ if (empty($missingExtensions)) {
 echo "\n" . colorize("💡 PROBLÈME RÉSOLU:", 'blue') . "\n";
 echo "✅ L'erreur PDO::MYSQL_ATTR_INIT_COMMAND a été corrigée\n";
 echo "✅ La connexion utilise maintenant des requêtes SQL standard\n";
-echo "✅ L'application est compatible avec toutes les versions de PHP\n";
+echo "✅ L'application est compatible avec MariaDB et MySQL\n";
 
 echo "\n" . colorize("🔧 EN CAS DE PROBLÈME DE TABLES:", 'yellow') . "\n";
 echo "   Lancez: " . colorize("php debug_database.php", 'blue') . " pour un diagnostic complet\n";
