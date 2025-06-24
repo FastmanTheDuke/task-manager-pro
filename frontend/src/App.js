@@ -10,6 +10,8 @@ import Dashboard from './components/Dashboard/Dashboard';
 import TaskList from './components/Tasks/TaskList';
 import TaskDetail from './components/Tasks/TaskDetail';
 import TaskForm from './components/Tasks/TaskForm';
+import ProjectList from './components/Projects/ProjectList';
+import ProjectForm from './components/Projects/ProjectForm';
 import './styles/index.css';
 
 function App() {
@@ -35,8 +37,12 @@ function App() {
               <Route path="tasks/:id" element={<TaskDetail />} />
               <Route path="tasks/:id/edit" element={<TaskForm />} />
               
+              {/* Projects Routes */}
+              <Route path="projects" element={<ProjectList />} />
+              <Route path="projects/new" element={<ProjectForm />} />
+              <Route path="projects/:id/edit" element={<ProjectForm />} />
+              
               {/* Autres routes à implémenter */}
-              <Route path="projects" element={<div>Projets (à venir)</div>} />
               <Route path="tags" element={<div>Tags (à venir)</div>} />
               <Route path="time-tracking" element={<div>Suivi du temps (à venir)</div>} />
               <Route path="calendar" element={<div>Calendrier (à venir)</div>} />
