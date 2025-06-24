@@ -17,6 +17,7 @@ use TaskManager\Middleware\ValidationMiddleware;
 use TaskManager\Models\Task;
 use TaskManager\Models\User;
 use TaskManager\Config\JWTManager;
+use TaskManager\Database\Connection;
 
 // Initialize application
 Bootstrap::init();
@@ -85,6 +86,11 @@ try {
         // Health check
         case $path === '/api/health' && $requestMethod === 'GET':
             handleHealthCheck();
+            break;
+            
+        // Database diagnostic
+        case $path === '/api/diagnostic' && $requestMethod === 'GET':
+            handleDiagnostic();
             break;
             
         // Debug endpoint
@@ -178,6 +184,7 @@ try {
                     ],
                     'available_endpoints' => [
                         'GET /api/health - API status',
+                        'GET /api/diagnostic - Database and PHP diagnostics',
                         'GET /api/info - App information', 
                         'GET /api - List all endpoints',
                         'POST /api/auth/login - Login',
@@ -232,6 +239,51 @@ function handleHealthCheck(): void
     ], 'API Health Check - All systems operational');
 }
 
+function handleDiagnostic(): void
+{
+    try {
+        $phpExtensions = [
+            'pdo' => extension_loaded('pdo'),
+            'pdo_mysql' => extension_loaded('pdo_mysql'),
+            'json' => extension_loaded('json'),
+            'mbstring' => extension_loaded('mbstring'),
+            'openssl' => extension_loaded('openssl')
+        ];
+        
+        $dbRequirements = Connection::checkRequirements();
+        $dbConfig = Connection::getConfig();
+        
+        $dbConnectionTest = false;
+        $dbError = null;
+        
+        try {
+            $dbConnectionTest = Connection::testConnection();
+        } catch (\Exception $e) {
+            $dbError = $e->getMessage();
+        }
+        
+        ResponseService::success([
+            'php_version' => PHP_VERSION,
+            'extensions' => $phpExtensions,
+            'database' => [
+                'requirements' => $dbRequirements,
+                'config' => $dbConfig,
+                'connection_test' => $dbConnectionTest,
+                'connection_error' => $dbError
+            ],
+            'environment' => [
+                'os' => PHP_OS,
+                'memory_limit' => ini_get('memory_limit'),
+                'max_execution_time' => ini_get('max_execution_time'),
+                'upload_max_filesize' => ini_get('upload_max_filesize')
+            ]
+        ], 'System diagnostic complete');
+        
+    } catch (\Exception $e) {
+        ResponseService::error('Diagnostic error: ' . $e->getMessage(), 500);
+    }
+}
+
 function handleApiInfo(): void
 {
     ResponseService::success([
@@ -241,6 +293,7 @@ function handleApiInfo(): void
         'status' => 'operational',
         'endpoints' => [
             'health' => 'GET /api/health - Vérification de l\'état de l\'API',
+            'diagnostic' => 'GET /api/diagnostic - Diagnostic système et base de données',
             'info' => 'GET /api/info - Informations sur l\'application',
             'auth' => [
                 'login' => 'POST /api/auth/login - Connexion (email ou username)',
