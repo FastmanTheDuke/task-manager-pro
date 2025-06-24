@@ -46,7 +46,7 @@ class Connection
     private static function createConnection(): void
     {
         try {
-            // CORRECTION: Vérifier si PDO MySQL est disponible
+            // Vérifier si PDO MySQL est disponible
             if (!extension_loaded('pdo_mysql')) {
                 throw new Exception("PDO MySQL extension is not loaded. Please install or enable php-pdo-mysql extension.");
             }
@@ -58,18 +58,14 @@ class Connection
                 self::$config['charset']
             );
             
-            // CORRECTION: Options PDO simplifiées et compatibles
+            // Options PDO de base (compatibles avec toutes les versions)
             $options = [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,
             ];
             
-            // CORRECTION: Ajouter l'option MySQL seulement si elle existe
-            if (defined('PDO::MYSQL_ATTR_INIT_COMMAND')) {
-                $options[PDO::MYSQL_ATTR_INIT_COMMAND] = "SET NAMES " . self::$config['charset'];
-            }
-            
+            // Créer la connexion
             self::$instance = new PDO(
                 $dsn,
                 self::$config['username'],
@@ -77,10 +73,9 @@ class Connection
                 $options
             );
             
-            // CORRECTION: Fallback pour définir le charset si la constante n'existe pas
-            if (!defined('PDO::MYSQL_ATTR_INIT_COMMAND')) {
-                self::$instance->exec("SET NAMES " . self::$config['charset']);
-            }
+            // Définir le charset avec une requête SQL standard (plus compatible)
+            self::$instance->exec("SET NAMES " . self::$config['charset'] . " COLLATE " . self::$config['charset'] . "_unicode_ci");
+            self::$instance->exec("SET CHARACTER SET " . self::$config['charset']);
             
         } catch (PDOException $e) {
             error_log("Database connection failed: " . $e->getMessage());
@@ -92,8 +87,8 @@ class Connection
     {
         try {
             $pdo = self::getInstance();
-            $pdo->query("SELECT 1");
-            return true;
+            $stmt = $pdo->query("SELECT 1");
+            return $stmt !== false;
         } catch (Exception $e) {
             error_log("Database test failed: " . $e->getMessage());
             return false;
@@ -129,8 +124,9 @@ class Connection
             'username' => self::$config['username'],
             'charset' => self::$config['charset'],
             'password_set' => !empty(self::$config['password']),
-            'pdo_mysql_loaded' => extension_loaded('pdo_mysql'),
-            'mysql_attr_available' => defined('PDO::MYSQL_ATTR_INIT_COMMAND')
+            'pdo_extension' => extension_loaded('pdo'),
+            'pdo_mysql_extension' => extension_loaded('pdo_mysql'),
+            'mysql_attr_constant' => defined('PDO::MYSQL_ATTR_INIT_COMMAND')
         ];
     }
     
@@ -146,5 +142,48 @@ class Connection
         ];
         
         return $checks;
+    }
+    
+    /**
+     * Get detailed diagnostics for debugging
+     */
+    public static function getDiagnostics(): array
+    {
+        $diagnostics = [
+            'php_version' => PHP_VERSION,
+            'extensions' => [
+                'pdo' => extension_loaded('pdo'),
+                'pdo_mysql' => extension_loaded('pdo_mysql'),
+                'mysqli' => extension_loaded('mysqli')
+            ],
+            'constants' => [
+                'PDO::MYSQL_ATTR_INIT_COMMAND' => defined('PDO::MYSQL_ATTR_INIT_COMMAND')
+            ]
+        ];
+        
+        try {
+            self::loadConfig();
+            $diagnostics['config'] = [
+                'host' => self::$config['host'],
+                'dbname' => self::$config['dbname'],
+                'username' => self::$config['username'],
+                'charset' => self::$config['charset'],
+                'password_set' => !empty(self::$config['password'])
+            ];
+            
+            // Test de connexion
+            $testPdo = new PDO(
+                sprintf('mysql:host=%s;dbname=%s', self::$config['host'], self::$config['dbname']),
+                self::$config['username'],
+                self::$config['password'],
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+            $diagnostics['connection_test'] = 'SUCCESS';
+            
+        } catch (Exception $e) {
+            $diagnostics['connection_test'] = 'FAILED: ' . $e->getMessage();
+        }
+        
+        return $diagnostics;
     }
 }
