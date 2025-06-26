@@ -37,9 +37,8 @@ class AuthMiddleware {
         
         $route = $method . ':' . $path;
         
-        // Debug log
+        // Debug log avec gestion d'erreur
         error_log("AuthMiddleware - Route: $route");
-        error_log("AuthMiddleware - Available headers: " . json_encode(getallheaders()));
         
         // Vérifier si la route est publique
         if (in_array($route, self::$publicRoutes)) {
@@ -47,12 +46,12 @@ class AuthMiddleware {
             return true;
         }
         
-        // Récupérer le token
+        // Récupérer le token avec la méthode améliorée
         $token = JWTManager::getTokenFromHeader();
         
         if (!$token) {
             error_log("AuthMiddleware - No token found in headers");
-            ResponseService::error('Token manquant', 401);
+            ResponseService::error('Token d\'authentification manquant', 401);
             return false;
         }
         
@@ -63,11 +62,27 @@ class AuthMiddleware {
         
         if (!$validation['valid']) {
             error_log("AuthMiddleware - Token validation failed: " . $validation['error']);
-            ResponseService::error($validation['error'], 401);
+            
+            // Fournir un message d'erreur plus spécifique
+            $errorMessage = $validation['error'];
+            $errorCode = 401;
+            
+            if (strpos($errorMessage, 'expiré') !== false) {
+                $errorMessage = 'Votre session a expiré. Veuillez vous reconnecter.';
+            } elseif (strpos($errorMessage, 'invalide') !== false) {
+                $errorMessage = 'Token d\'authentification invalide.';
+            }
+            
+            ResponseService::error($errorMessage, $errorCode);
             return false;
         }
         
         error_log("AuthMiddleware - Token validation successful for user: " . $validation['data']->id);
+        
+        // Vérifier si le token expire bientôt et log un avertissement
+        if (JWTManager::tokenExpiresSoon($token)) {
+            error_log("AuthMiddleware - Token will expire soon for user: " . $validation['data']->id);
+        }
         
         // Stocker les données utilisateur pour utilisation ultérieure
         $GLOBALS['auth_user'] = $validation['data'];
@@ -82,8 +97,13 @@ class AuthMiddleware {
         
         $user = $GLOBALS['auth_user'] ?? null;
         
-        if (!$user || !in_array($user->role, $roles)) {
-            ResponseService::error('Accès non autorisé', 403);
+        if (!$user) {
+            ResponseService::error('Authentification requise', 401);
+            return false;
+        }
+        
+        if (!in_array($user->role, $roles)) {
+            ResponseService::error('Permissions insuffisantes pour accéder à cette ressource', 403);
             return false;
         }
         
@@ -94,8 +114,50 @@ class AuthMiddleware {
         return $GLOBALS['auth_user'] ?? null;
     }
     
-    public static function getCurrentUserId() {
+    public static function getCurrentUserId(): ?int {
         $user = self::getCurrentUser();
-        return $user ? $user->id : null;
+        return $user ? (int)$user->id : null;
+    }
+    
+    public static function getCurrentUserRole(): ?string {
+        $user = self::getCurrentUser();
+        return $user->role ?? null;
+    }
+    
+    public static function isAuthenticated(): bool {
+        return self::getCurrentUser() !== null;
+    }
+    
+    /**
+     * Vérifier si l'utilisateur actuel a une permission spécifique
+     */
+    public static function hasPermission(string $permission): bool {
+        $user = self::getCurrentUser();
+        if (!$user) {
+            return false;
+        }
+        
+        // Logique de permissions basée sur les rôles
+        $rolePermissions = [
+            'admin' => ['*'], // Admin a toutes les permissions
+            'manager' => ['manage_projects', 'view_reports', 'manage_users'],
+            'user' => ['view_own_tasks', 'edit_own_tasks', 'view_own_projects']
+        ];
+        
+        $userRole = $user->role ?? 'user';
+        $permissions = $rolePermissions[$userRole] ?? [];
+        
+        return in_array('*', $permissions) || in_array($permission, $permissions);
+    }
+    
+    /**
+     * Middleware pour vérifier les permissions
+     */
+    public static function requirePermission(string $permission): bool {
+        if (!self::hasPermission($permission)) {
+            ResponseService::error('Permission refusée: ' . $permission, 403);
+            return false;
+        }
+        return true;
     }
 }
