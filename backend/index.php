@@ -17,6 +17,7 @@ use TaskManager\Middleware\ValidationMiddleware;
 use TaskManager\Controllers\DiagnosticController;
 use TaskManager\Models\Task;
 use TaskManager\Models\User;
+use TaskManager\Models\Project;
 use TaskManager\Config\JWTManager;
 use TaskManager\Database\Connection;
 
@@ -162,6 +163,22 @@ try {
             handleDeleteTask($matches[1]);
             break;
             
+        // Project routes (require authentication)
+        case $path === '/api/projects' && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            handleGetProjects();
+            break;
+            
+        case $path === '/api/projects' && $requestMethod === 'POST':
+            AuthMiddleware::handle();
+            handleCreateProject();
+            break;
+            
+        case preg_match('#^/api/projects/(\\d+)$#', $path, $matches) && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            handleGetProject($matches[1]);
+            break;
+            
         // User routes
         case $path === '/api/users/profile' && $requestMethod === 'GET':
             AuthMiddleware::handle();
@@ -217,7 +234,9 @@ try {
                         'GET|POST /api/debug - Debug info',
                         'GET /api/dashboard - Dashboard data',
                         'GET /api/tasks - List tasks',
-                        'POST /api/tasks - Create task'
+                        'POST /api/tasks - Create task',
+                        'GET /api/projects - List projects',
+                        'POST /api/projects - Create project'
                     ],
                     'tip' => 'Make sure your requests are going to the correct backend endpoint'
                 ]
@@ -293,6 +312,11 @@ function handleApiInfo(): void
                 'get' => 'GET /api/tasks/{id} - Détails d\'une tâche',
                 'update' => 'PUT /api/tasks/{id} - Modifier une tâche',
                 'delete' => 'DELETE /api/tasks/{id} - Supprimer une tâche'
+            ],
+            'projects' => [
+                'list' => 'GET /api/projects - Liste des projets',
+                'create' => 'POST /api/projects - Créer un projet',
+                'get' => 'GET /api/projects/{id} - Détails d\'un projet'
             ],
             'users' => [
                 'profile' => 'GET /api/users/profile - Profil utilisateur',
@@ -567,21 +591,19 @@ function handleDashboard(): void
             'timeTracking' => []
         ];
         
-        // Essayer de récupérer les vraies statistiques
+        // Récupérer les vraies statistiques des tâches
         try {
             $taskModel = new Task();
+            $taskStats = $taskModel->getStatistics($userId);
             
-            // Obtenir les statistiques complètes des tâches
-            $stats = $taskModel->getStatistics($userId);
-            
-            // Obtenir les tâches récentes
+            // Tâches récentes
             $recentTasks = $taskModel->getUserTasks($userId, [], [
                 'limit' => 5,
                 'order_by' => 'created_at',
                 'order_dir' => 'DESC'
             ]);
             
-            // Obtenir les échéances prochaines (tâches avec due_date dans les 7 prochains jours)
+            // Échéances prochaines (tâches avec due_date dans les 7 prochains jours)
             $upcomingDeadlines = $taskModel->getUserTasks($userId, [
                 'due_date_from' => date('Y-m-d'),
                 'due_date_to' => date('Y-m-d', strtotime('+7 days'))
@@ -591,25 +613,62 @@ function handleDashboard(): void
                 'order_dir' => 'ASC'
             ]);
             
-            // Mettre à jour les données avec les vraies statistiques
-            $dashboardData['stats'] = [
-                'totalTasks' => (int)($stats['total_tasks'] ?? 0),
-                'completedTasks' => (int)($stats['completed_tasks'] ?? 0),
-                'pendingTasks' => (int)(($stats['pending_tasks'] ?? 0) + ($stats['in_progress_tasks'] ?? 0)),
-                'overdueTasks' => (int)($stats['overdue_tasks'] ?? 0),
-                'totalProjects' => 0, // À implémenter quand le modèle Project sera disponible
-                'activeProjects' => 0,
-                'totalTimeTracked' => 0, // À implémenter
-                'tasksCompletedThisWeek' => (int)($stats['completed_tasks'] ?? 0) // Approximation
-            ];
+            // Tâches terminées cette semaine
+            $weekStart = date('Y-m-d', strtotime('monday this week'));
+            $tasksThisWeek = $taskModel->getUserTasks($userId, [
+                'status' => 'completed',
+                'due_date_from' => $weekStart,
+                'due_date_to' => date('Y-m-d')
+            ]);
             
             $dashboardData['recentTasks'] = is_array($recentTasks) ? $recentTasks : [];
             $dashboardData['upcomingDeadlines'] = is_array($upcomingDeadlines) ? $upcomingDeadlines : [];
             
         } catch (\Exception $e) {
-            error_log('Dashboard stats error: ' . $e->getMessage());
-            // Garder les valeurs par défaut en cas d'erreur
+            error_log('Dashboard task stats error: ' . $e->getMessage());
+            $taskStats = [];
+            $tasksThisWeek = [];
         }
+        
+        // Récupérer les statistiques des projets
+        try {
+            $projectModel = new Project();
+            $projectStats = $projectModel->getProjectStats($userId);
+            
+            // Projets récents
+            $recentProjects = $projectModel->getRecentProjects($userId, 5);
+            
+            $dashboardData['recentProjects'] = is_array($recentProjects) ? $recentProjects : [];
+            
+        } catch (\Exception $e) {
+            error_log('Dashboard project stats error: ' . $e->getMessage());
+            $projectStats = [
+                'total' => 0,
+                'active' => 0,
+                'completed' => 0,
+                'overdue' => 0
+            ];
+        }
+        
+        // Mettre à jour les statistiques avec les vraies données
+        $dashboardData['stats'] = [
+            'totalTasks' => (int)($taskStats['total_tasks'] ?? 0),
+            'completedTasks' => (int)($taskStats['completed_tasks'] ?? 0),
+            'pendingTasks' => (int)(($taskStats['pending_tasks'] ?? 0) + ($taskStats['in_progress_tasks'] ?? 0)),
+            'overdueTasks' => (int)($taskStats['overdue_tasks'] ?? 0),
+            'totalProjects' => (int)($projectStats['total'] ?? 0),
+            'activeProjects' => (int)($projectStats['active'] ?? 0),
+            'totalTimeTracked' => 0, // À implémenter avec TimeTracking
+            'tasksCompletedThisWeek' => is_array($tasksThisWeek) ? count($tasksThisWeek) : 0
+        ];
+        
+        // Données de productivité pour les graphiques
+        $dashboardData['productivity'] = [
+            'labels' => ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+            'completedTasks' => [2, 5, 3, 8, 4, 1, 0], // Données d'exemple - à implémenter
+            'timeSpent' => [4, 6, 5, 8, 7, 2, 0], // Données d'exemple - à implémenter
+            'lastWeekTasks' => is_array($tasksThisWeek) ? count($tasksThisWeek) : 0
+        ];
         
         ResponseService::success($dashboardData, 'Dashboard data retrieved successfully');
         
@@ -758,6 +817,63 @@ function handleDeleteTask(int $taskId): void
     }
     
     ResponseService::success(null, 'Tâche supprimée avec succès');
+}
+
+function handleGetProjects(): void
+{
+    $userId = AuthMiddleware::getCurrentUserId();
+    $projectModel = new Project();
+    
+    $filters = $_GET;
+    $page = (int)($_GET['page'] ?? 1);
+    $limit = min((int)($_GET['limit'] ?? 10), 100);
+    
+    $result = $projectModel->getProjectsForUser($userId, $filters, $page, $limit);
+    
+    if (!$result['success']) {
+        ResponseService::error($result['message'] ?? 'Erreur lors de la récupération des projets', 500);
+    }
+    
+    ResponseService::success($result['data'], 'Projects retrieved successfully');
+}
+
+function handleCreateProject(): void
+{
+    $rules = [
+        'name' => 'required|max:200',
+        'description' => 'max:1000',
+        'status' => 'in:planning,active,completed,on_hold,cancelled',
+        'priority' => 'in:low,medium,high,urgent',
+        'due_date' => 'date',
+        'color' => 'max:7',
+        'is_public' => 'boolean'
+    ];
+    
+    $data = ValidationMiddleware::validate($rules);
+    $data['created_by'] = AuthMiddleware::getCurrentUserId();
+    
+    $projectModel = new Project();
+    $result = $projectModel->createProject($data, $data['created_by']);
+    
+    if (!$result['success']) {
+        ResponseService::error($result['message'] ?? 'Erreur lors de la création', 400);
+    }
+    
+    ResponseService::success($result['data'], 'Projet créé avec succès', 201);
+}
+
+function handleGetProject(int $projectId): void
+{
+    $userId = AuthMiddleware::getCurrentUserId();
+    $projectModel = new Project();
+    
+    $result = $projectModel->getProjectById($projectId, $userId);
+    
+    if (!$result['success']) {
+        ResponseService::error($result['message'] ?? 'Projet non trouvé', 404);
+    }
+    
+    ResponseService::success($result['data']);
 }
 
 function handleGetProfile(): void
