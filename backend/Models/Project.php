@@ -29,7 +29,7 @@ class Project extends BaseModel {
 
             // Corrected SQL statement: removed priority, changed due_date to end_date
             $sql = "INSERT INTO projects (name, description, status,priority,end_date, color, is_public, owner_id, created_at)
-                    VALUES (:name, :description, :status, :end_date, :color, :is_public, :created_by, NOW())";
+                    VALUES (:name, :description, :status,:priority, :end_date, :color, :is_public, :created_by, NOW())";
 
             $stmt = $this->db->prepare($sql);
             // Corrected execution array
