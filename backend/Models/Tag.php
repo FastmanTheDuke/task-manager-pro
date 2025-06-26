@@ -6,10 +6,10 @@ use TaskManager\Database\Connection; // Si vous utilisez la connexion directemen
 use PDO;
 
 class Tag extends BaseModel { // Assurez-vous que "extends BaseModel" est présent
-    protected $table = 'tags';
     
     public function __construct() {
         parent::__construct();
+        $this->table = 'tags'; // Assigner la valeur dans le constructeur
     }
 
     /**
@@ -308,7 +308,7 @@ class Tag extends BaseModel { // Assurez-vous que "extends BaseModel" est prése
                            u.username as assigned_to_username
                     FROM tasks t
                     INNER JOIN task_tags tt ON t.id = tt.task_id
-                    LEFT JOIN users u ON t.assigned_to = u.id
+                    LEFT JOIN users u ON t.assignee_id = u.id
                     WHERE tt.tag_id = ?
                     ORDER BY t.updated_at DESC
                     LIMIT ?";
@@ -328,7 +328,7 @@ class Tag extends BaseModel { // Assurez-vous que "extends BaseModel" est prése
      */
     public function addTagToTask($taskId, $tagId) {
         try {
-            $sql = "INSERT IGNORE INTO task_tags (task_id, tag_id, created_at) 
+            $sql = "INSERT IGNORE INTO task_tags (task_id, tag_id, added_at) 
                     VALUES (?, ?, NOW())";
             
             $stmt = $this->db->prepare($sql);
@@ -385,7 +385,7 @@ class Tag extends BaseModel { // Assurez-vous que "extends BaseModel" est prése
             
             // Add new tags
             if (!empty($tagIds)) {
-                $sql = "INSERT INTO task_tags (task_id, tag_id, created_at) VALUES ";
+                $sql = "INSERT INTO task_tags (task_id, tag_id, added_at) VALUES ";
                 $values = [];
                 $params = [];
                 
