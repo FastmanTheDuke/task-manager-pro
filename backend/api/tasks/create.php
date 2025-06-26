@@ -1,8 +1,7 @@
 <?php
 /**
  * Create Task API Endpoint
- * 
- * Creates a new task with validation and proper error handling
+ * * Creates a new task with validation and proper error handling
  */
 
 require_once '../../Bootstrap.php';
@@ -44,6 +43,14 @@ try {
     
     // Add current user as creator
     $data['creator_id'] = AuthMiddleware::getCurrentUserId();
+    
+    // ** FIX: Convert empty date strings to null **
+    if (isset($data['due_date']) && $data['due_date'] === '') {
+        $data['due_date'] = null;
+    }
+    if (isset($data['start_date']) && $data['start_date'] === '') {
+        $data['start_date'] = null;
+    }
     
     // Set default values
     $data['status'] = $data['status'] ?? 'pending';
