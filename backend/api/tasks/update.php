@@ -35,6 +35,14 @@ $rules = [
 
 $data = ValidationMiddleware::validate($rules);
 
+// ** FIX: Convert empty date strings to null **
+if (array_key_exists('due_date', $data) && $data['due_date'] === '') {
+    $data['due_date'] = null;
+}
+if (array_key_exists('start_date', $data) && $data['start_date'] === '') {
+    $data['start_date'] = null;
+}
+
 $taskModel = new Task();
 
 // Vérifier les permissions
