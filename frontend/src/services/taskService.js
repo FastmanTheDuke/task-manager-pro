@@ -34,7 +34,7 @@ const taskService = {
   getTaskById: async (id, includes = []) => {
     try {
       const params = includes.length > 0 ? `?include=${includes.join(',')}` : '';
-      const response = await api.get(`/tasks/show?id=${id}${params}`);
+      const response = await api.get(`/tasks/${id}${params}`);
       return {
         success: true,
         data: response.data.data,
@@ -47,10 +47,10 @@ const taskService = {
     }
   },
 
-  // Créer une tâche
+  // Créer une tâche (correction: utilise POST /tasks au lieu de /tasks/create)
   createTask: async (taskData) => {
     try {
-      const response = await api.post('/tasks/create', taskData);
+      const response = await api.post('/tasks', taskData);
       return {
         success: true,
         data: response.data.data,
@@ -65,10 +65,10 @@ const taskService = {
     }
   },
 
-  // Mettre à jour une tâche
+  // Mettre à jour une tâche (correction: utilise PUT /tasks/{id} au lieu de /tasks/update)
   updateTask: async (id, taskData) => {
     try {
-      const response = await api.put(`/tasks/update?id=${id}`, taskData);
+      const response = await api.put(`/tasks/${id}`, taskData);
       return {
         success: true,
         data: response.data.data,
@@ -83,10 +83,10 @@ const taskService = {
     }
   },
 
-  // Supprimer une tâche
+  // Supprimer une tâche (correction: utilise DELETE /tasks/{id} au lieu de /tasks/delete)
   deleteTask: async (id) => {
     try {
-      const response = await api.delete(`/tasks/delete?id=${id}`);
+      const response = await api.delete(`/tasks/${id}`);
       return {
         success: true,
         message: response.data.message,
