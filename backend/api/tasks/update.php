@@ -42,7 +42,10 @@ if (array_key_exists('due_date', $data) && $data['due_date'] === '') {
 if (array_key_exists('start_date', $data) && $data['start_date'] === '') {
     $data['start_date'] = null;
 }
-
+// Juste avant de créer ou de mettre à jour la tâche
+if (isset($data['estimated_hours']) && $data['estimated_hours'] === '') {
+    $data['estimated_hours'] = null;
+}
 $taskModel = new Task();
 
 // Vérifier les permissions
