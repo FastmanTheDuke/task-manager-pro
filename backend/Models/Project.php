@@ -121,7 +121,7 @@ class Project extends BaseModel {
             $sql = "SELECT DISTINCT p.*, 
                            pm.role as user_role,
                            u.username as created_by_username,
-                           pf.id as is_favorite,
+                           (pf.project_id IS NOT NULL) as is_favorite,
                            (SELECT COUNT(*) FROM project_members pm2 WHERE pm2.project_id = p.id) as members_count,
                            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as tasks_total,
                            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') as tasks_completed,
