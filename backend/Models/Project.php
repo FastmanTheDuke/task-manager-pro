@@ -1,424 +1,527 @@
 <?php
-namespace TaskManager\Models;
 
-use Exception;
+namespace Models;
 
-class Project extends BaseModel
-{
-    protected string $table = 'projects';
-    protected array $fillable = [
-        'name',
-        'description',
-        'color',
-        'icon',
-        'owner_id',
-        'status',
-        'start_date',
-        'end_date'
-    ];
+use Database\Connection;
+use PDO;
+
+class Project extends BaseModel {
+    protected $table = 'projects';
     
-    const STATUS_ACTIVE = 'active';
-    const STATUS_ARCHIVED = 'archived';
-    const STATUS_COMPLETED = 'completed';
-    
-    /**
-     * Get projects for a specific user (owned or member)
-     */
-    public function getUserProjects(int $userId, array $filters = []): array
-    {
-        $sql = "SELECT p.*, 
-                       u.username as owner_name,
-                       COUNT(DISTINCT t.id) as task_count,
-                       COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END) as completed_tasks,
-                       COUNT(DISTINCT pm.user_id) as member_count
-                FROM {$this->table} p
-                LEFT JOIN users u ON p.owner_id = u.id
-                LEFT JOIN tasks t ON p.id = t.project_id
-                LEFT JOIN project_members pm ON p.id = pm.project_id
-                WHERE (p.owner_id = ? OR pm.user_id = ?)";
-        
-        $params = [$userId, $userId];
-        
-        // Add filters
-        if (isset($filters['status'])) {
-            $sql .= " AND p.status = ?";
-            $params[] = $filters['status'];
-        }
-        
-        if (isset($filters['search'])) {
-            $sql .= " AND (p.name LIKE ? OR p.description LIKE ?)";
-            $searchTerm = "%{$filters['search']}%";
-            $params[] = $searchTerm;
-            $params[] = $searchTerm;
-        }
-        
-        $sql .= " GROUP BY p.id ORDER BY p.created_at DESC";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        
-        return $stmt->fetchAll();
+    public function __construct() {
+        parent::__construct();
     }
-    
+
     /**
      * Create a new project
      */
-    public function createProject(array $data, int $userId): array
-    {
+    public function createProject($data, $userId) {
         try {
-            // Validate required fields
-            if (empty($data['name'])) {
-                return ['success' => false, 'message' => 'Le nom du projet est obligatoire'];
+            $this->db->beginTransaction();
+            
+            $sql = "INSERT INTO projects (name, description, status, priority, due_date, color, is_public, created_by, created_at) 
+                    VALUES (:name, :description, :status, :priority, :due_date, :color, :is_public, :created_by, NOW())";
+            
+            $stmt = $this->db->prepare($sql);
+            $result = $stmt->execute([
+                ':name' => $data['name'],
+                ':description' => $data['description'],
+                ':status' => $data['status'],
+                ':priority' => $data['priority'],
+                ':due_date' => $data['due_date'],
+                ':color' => $data['color'],
+                ':is_public' => $data['is_public'] ? 1 : 0,
+                ':created_by' => $data['created_by']
+            ]);
+            
+            if (!$result) {
+                throw new \Exception('Failed to create project');
             }
             
-            // Set default values
-            $data['owner_id'] = $userId;
-            $data['status'] = $data['status'] ?? self::STATUS_ACTIVE;
-            $data['color'] = $data['color'] ?? '#4361ee';
-            $data['icon'] = $data['icon'] ?? 'folder';
+            $projectId = $this->db->lastInsertId();
             
-            $result = $this->create($data);
+            // Add creator as project owner
+            $this->addMember($projectId, $userId, 'owner');
             
-            if ($result['success']) {
-                // Add owner as project member
-                $this->addMember($result['id'], $userId, 'owner');
-            }
+            $this->db->commit();
             
-            return $result;
+            return [
+                'success' => true,
+                'data' => $this->getProjectById($projectId, $userId)['data']
+            ];
             
-        } catch (Exception $e) {
-            error_log("Create project error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            return [
+                'success' => false,
+                'message' => 'Error creating project: ' . $e->getMessage()
+            ];
         }
     }
-    
+
     /**
-     * Get project details with members and statistics
+     * Get projects for a specific user with filters
      */
-    public function getProjectDetails(int $projectId, int $userId): ?array
-    {
-        // Check if user has access to this project
-        if (!$this->hasAccess($projectId, $userId)) {
-            return null;
+    public function getProjectsForUser($userId, $filters = [], $page = 1, $limit = 50) {
+        try {
+            $offset = ($page - 1) * $limit;
+            
+            // Build WHERE clause
+            $whereConditions = [];
+            $params = [':user_id' => $userId];
+            
+            // Base condition - user must be a member or project is public
+            $whereConditions[] = "(pm.user_id = :user_id OR p.is_public = 1)";
+            
+            if (!empty($filters['search'])) {
+                $whereConditions[] = "(p.name LIKE :search OR p.description LIKE :search)";
+                $params[':search'] = '%' . $filters['search'] . '%';
+            }
+            
+            if (!empty($filters['status']) && $filters['status'] !== 'all') {
+                $whereConditions[] = "p.status = :status";
+                $params[':status'] = $filters['status'];
+            }
+            
+            if (!empty($filters['role']) && $filters['role'] !== 'all') {
+                $whereConditions[] = "pm.role = :role";
+                $params[':role'] = $filters['role'];
+            }
+            
+            if (!empty($filters['is_archived'])) {
+                $whereConditions[] = "p.is_archived = :is_archived";
+                $params[':is_archived'] = $filters['is_archived'];
+            }
+            
+            $whereClause = implode(' AND ', $whereConditions);
+            
+            // Build ORDER BY clause
+            $orderBy = 'p.updated_at DESC';
+            if (!empty($filters['sortBy'])) {
+                $sortOrder = $filters['sortOrder'] ?? 'desc';
+                $validSorts = ['name', 'created_at', 'updated_at', 'due_date', 'completion_percentage'];
+                
+                if (in_array($filters['sortBy'], $validSorts)) {
+                    $orderBy = "p.{$filters['sortBy']} " . strtoupper($sortOrder);
+                }
+            }
+            
+            // Main query
+            $sql = "SELECT DISTINCT p.*, 
+                           pm.role as user_role,
+                           u.username as created_by_username,
+                           pf.id as is_favorite,
+                           (SELECT COUNT(*) FROM project_members pm2 WHERE pm2.project_id = p.id) as members_count,
+                           (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as tasks_total,
+                           (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') as tasks_completed,
+                           COALESCE((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') * 100.0 / 
+                                   NULLIF((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id), 0), 0) as completion_percentage
+                    FROM projects p
+                    LEFT JOIN project_members pm ON p.id = pm.project_id
+                    LEFT JOIN users u ON p.created_by = u.id
+                    LEFT JOIN project_favorites pf ON p.id = pf.project_id AND pf.user_id = :user_id
+                    WHERE $whereClause
+                    ORDER BY $orderBy
+                    LIMIT :limit OFFSET :offset";
+            
+            $stmt = $this->db->prepare($sql);
+            
+            // Bind parameters
+            foreach ($params as $key => $value) {
+                $stmt->bindValue($key, $value);
+            }
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+            
+            $stmt->execute();
+            $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Get total count for pagination
+            $countSql = "SELECT COUNT(DISTINCT p.id) as total
+                        FROM projects p
+                        LEFT JOIN project_members pm ON p.id = pm.project_id
+                        WHERE $whereClause";
+            
+            $countStmt = $this->db->prepare($countSql);
+            foreach ($params as $key => $value) {
+                $countStmt->bindValue($key, $value);
+            }
+            $countStmt->execute();
+            $total = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+            
+            // Process projects to add additional data
+            foreach ($projects as &$project) {
+                $project['is_favorite'] = !empty($project['is_favorite']);
+                $project['members'] = $this->getProjectMembers($project['id']);
+            }
+            
+            return [
+                'success' => true,
+                'data' => $projects,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => (int)$total,
+                    'pages' => ceil($total / $limit)
+                ]
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error fetching projects: ' . $e->getMessage()
+            ];
         }
-        
-        $project = $this->findById($projectId);
-        
-        if (!$project) {
-            return null;
-        }
-        
-        // Get project members
-        $project['members'] = $this->getProjectMembers($projectId);
-        
-        // Get project statistics
-        $project['stats'] = $this->getProjectStatistics($projectId);
-        
-        // Get recent tasks
-        $project['recent_tasks'] = $this->getRecentTasks($projectId, 5);
-        
-        return $project;
     }
-    
+
+    /**
+     * Get a specific project by ID
+     */
+    public function getProjectById($projectId, $userId) {
+        try {
+            $sql = "SELECT p.*, 
+                           pm.role as user_role,
+                           u.username as created_by_username,
+                           pf.id as is_favorite,
+                           (SELECT COUNT(*) FROM project_members pm2 WHERE pm2.project_id = p.id) as members_count,
+                           (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as tasks_total,
+                           (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') as tasks_completed,
+                           COALESCE((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') * 100.0 / 
+                                   NULLIF((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id), 0), 0) as completion_percentage
+                    FROM projects p
+                    LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = :user_id
+                    LEFT JOIN users u ON p.created_by = u.id
+                    LEFT JOIN project_favorites pf ON p.id = pf.project_id AND pf.user_id = :user_id
+                    WHERE p.id = :project_id 
+                    AND (pm.user_id = :user_id OR p.is_public = 1)";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':project_id' => $projectId,
+                ':user_id' => $userId
+            ]);
+            
+            $project = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$project) {
+                return [
+                    'success' => false,
+                    'message' => 'Project not found or access denied'
+                ];
+            }
+            
+            $project['is_favorite'] = !empty($project['is_favorite']);
+            $project['members'] = $this->getProjectMembers($projectId);
+            $project['recent_tasks'] = $this->getRecentProjectTasks($projectId, 5);
+            
+            return [
+                'success' => true,
+                'data' => $project
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error fetching project: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Update a project
+     */
+    public function updateProject($projectId, $data, $userId) {
+        try {
+            // Check if user has permission to update
+            if (!$this->hasProjectPermission($projectId, $userId, ['owner', 'admin'])) {
+                return [
+                    'success' => false,
+                    'message' => 'Insufficient permissions to update project'
+                ];
+            }
+            
+            $updateFields = [];
+            $params = [':project_id' => $projectId];
+            
+            $allowedFields = ['name', 'description', 'status', 'priority', 'due_date', 'color', 'is_public'];
+            
+            foreach ($allowedFields as $field) {
+                if (array_key_exists($field, $data)) {
+                    $updateFields[] = "$field = :$field";
+                    $params[":$field"] = $data[$field];
+                }
+            }
+            
+            if (empty($updateFields)) {
+                return [
+                    'success' => false,
+                    'message' => 'No valid fields to update'
+                ];
+            }
+            
+            $updateFields[] = "updated_at = NOW()";
+            
+            $sql = "UPDATE projects SET " . implode(', ', $updateFields) . " WHERE id = :project_id";
+            
+            $stmt = $this->db->prepare($sql);
+            $result = $stmt->execute($params);
+            
+            if (!$result) {
+                throw new \Exception('Failed to update project');
+            }
+            
+            return [
+                'success' => true,
+                'data' => $this->getProjectById($projectId, $userId)['data']
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error updating project: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Delete a project
+     */
+    public function deleteProject($projectId, $userId) {
+        try {
+            // Check if user is the owner
+            if (!$this->hasProjectPermission($projectId, $userId, ['owner'])) {
+                return [
+                    'success' => false,
+                    'message' => 'Only project owners can delete projects'
+                ];
+            }
+            
+            $this->db->beginTransaction();
+            
+            // Delete related data
+            $this->db->prepare("DELETE FROM project_favorites WHERE project_id = ?")->execute([$projectId]);
+            $this->db->prepare("DELETE FROM project_members WHERE project_id = ?")->execute([$projectId]);
+            $this->db->prepare("UPDATE tasks SET project_id = NULL WHERE project_id = ?")->execute([$projectId]);
+            
+            // Delete project
+            $stmt = $this->db->prepare("DELETE FROM projects WHERE id = ?");
+            $result = $stmt->execute([$projectId]);
+            
+            if (!$result) {
+                throw new \Exception('Failed to delete project');
+            }
+            
+            $this->db->commit();
+            
+            return ['success' => true];
+            
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            return [
+                'success' => false,
+                'message' => 'Error deleting project: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Add a member to a project
+     */
+    public function addMember($projectId, $userId, $role = 'member') {
+        try {
+            $sql = "INSERT INTO project_members (project_id, user_id, role, joined_at) 
+                    VALUES (?, ?, ?, NOW())
+                    ON DUPLICATE KEY UPDATE role = VALUES(role)";
+            
+            $stmt = $this->db->prepare($sql);
+            return $stmt->execute([$projectId, $userId, $role]);
+            
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Remove all members from a project
+     */
+    public function removeAllMembers($projectId) {
+        try {
+            $stmt = $this->db->prepare("DELETE FROM project_members WHERE project_id = ? AND role != 'owner'");
+            return $stmt->execute([$projectId]);
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
     /**
      * Get project members
      */
-    public function getProjectMembers(int $projectId): array
-    {
-        $sql = "SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.avatar,
-                       pm.role, pm.joined_at
-                FROM project_members pm
-                JOIN users u ON pm.user_id = u.id
-                WHERE pm.project_id = ?
-                ORDER BY pm.role DESC, u.username ASC";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$projectId]);
-        
-        return $stmt->fetchAll();
-    }
-    
-    /**
-     * Add member to project
-     */
-    public function addMember(int $projectId, int $userId, string $role = 'member'): array
-    {
+    public function getProjectMembers($projectId) {
         try {
-            // Check if user is already a member
-            if ($this->isMember($projectId, $userId)) {
-                return ['success' => false, 'message' => 'L\'utilisateur est déjà membre du projet'];
-            }
-            
-            // Create project_members table if it doesn't exist
-            $this->createProjectMembersTableIfNotExists();
-            
-            $sql = "INSERT INTO project_members (project_id, user_id, role, joined_at) 
-                    VALUES (?, ?, ?, NOW())";
+            $sql = "SELECT u.id, u.username, u.email, u.first_name, u.last_name, pm.role, pm.joined_at
+                    FROM project_members pm
+                    JOIN users u ON pm.user_id = u.id
+                    WHERE pm.project_id = ?
+                    ORDER BY pm.role = 'owner' DESC, pm.role = 'admin' DESC, pm.joined_at ASC";
             
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$projectId, $userId, $role]);
+            $stmt->execute([$projectId]);
             
-            return ['success' => true, 'message' => 'Membre ajouté avec succès'];
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-        } catch (Exception $e) {
-            error_log("Add member error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+        } catch (\Exception $e) {
+            return [];
         }
     }
-    
+
     /**
-     * Remove member from project
+     * Toggle project favorite status
      */
-    public function removeMember(int $projectId, int $userId): array
-    {
+    public function toggleFavorite($projectId, $userId) {
         try {
-            $sql = "DELETE FROM project_members WHERE project_id = ? AND user_id = ?";
+            // Check if already favorited
+            $stmt = $this->db->prepare("SELECT id FROM project_favorites WHERE project_id = ? AND user_id = ?");
+            $stmt->execute([$projectId, $userId]);
+            $favorite = $stmt->fetch();
+            
+            if ($favorite) {
+                // Remove from favorites
+                $stmt = $this->db->prepare("DELETE FROM project_favorites WHERE project_id = ? AND user_id = ?");
+                $stmt->execute([$projectId, $userId]);
+                $isFavorite = false;
+            } else {
+                // Add to favorites
+                $stmt = $this->db->prepare("INSERT INTO project_favorites (project_id, user_id, created_at) VALUES (?, ?, NOW())");
+                $stmt->execute([$projectId, $userId]);
+                $isFavorite = true;
+            }
+            
+            return [
+                'success' => true,
+                'data' => $this->getProjectById($projectId, $userId)['data']
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error toggling favorite: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Toggle project archive status
+     */
+    public function toggleArchive($projectId, $userId) {
+        try {
+            if (!$this->hasProjectPermission($projectId, $userId, ['owner', 'admin'])) {
+                return [
+                    'success' => false,
+                    'message' => 'Insufficient permissions to archive project'
+                ];
+            }
+            
+            // Get current archive status
+            $stmt = $this->db->prepare("SELECT is_archived FROM projects WHERE id = ?");
+            $stmt->execute([$projectId]);
+            $project = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$project) {
+                return ['success' => false, 'message' => 'Project not found'];
+            }
+            
+            $newStatus = !$project['is_archived'];
+            
+            $stmt = $this->db->prepare("UPDATE projects SET is_archived = ?, updated_at = NOW() WHERE id = ?");
+            $stmt->execute([$newStatus, $projectId]);
+            
+            return [
+                'success' => true,
+                'data' => $this->getProjectById($projectId, $userId)['data']
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error toggling archive: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get project statistics for a user
+     */
+    public function getProjectStats($userId) {
+        try {
+            $sql = "SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN p.status = 'active' THEN 1 ELSE 0 END) as active,
+                        SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) as completed,
+                        SUM(CASE WHEN p.due_date < NOW() AND p.status != 'completed' THEN 1 ELSE 0 END) as overdue
+                    FROM projects p
+                    LEFT JOIN project_members pm ON p.id = pm.project_id
+                    WHERE (pm.user_id = ? OR p.is_public = 1)
+                    AND p.is_archived = 0";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$userId]);
+            
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+            
+        } catch (\Exception $e) {
+            return [
+                'total' => 0,
+                'active' => 0,
+                'completed' => 0,
+                'overdue' => 0
+            ];
+        }
+    }
+
+    /**
+     * Get recent tasks for a project
+     */
+    public function getRecentProjectTasks($projectId, $limit = 5) {
+        try {
+            $sql = "SELECT t.id, t.title, t.status, t.priority, t.due_date, t.created_at,
+                           u.username as assigned_to_username
+                    FROM tasks t
+                    LEFT JOIN users u ON t.assigned_to = u.id
+                    WHERE t.project_id = ?
+                    ORDER BY t.updated_at DESC
+                    LIMIT ?";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$projectId, $limit]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Check if user has specific permission on project
+     */
+    public function hasProjectPermission($projectId, $userId, $requiredRoles = []) {
+        try {
+            $sql = "SELECT pm.role FROM project_members pm 
+                    WHERE pm.project_id = ? AND pm.user_id = ?";
+            
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$projectId, $userId]);
+            $member = $stmt->fetch(PDO::FETCH_ASSOC);
             
-            return ['success' => true, 'message' => 'Membre supprimé avec succès'];
+            if (!$member) {
+                return false;
+            }
             
-        } catch (Exception $e) {
-            error_log("Remove member error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+            return empty($requiredRoles) || in_array($member['role'], $requiredRoles);
+            
+        } catch (\Exception $e) {
+            return false;
         }
-    }
-    
-    /**
-     * Check if user is member of project
-     */
-    public function isMember(int $projectId, int $userId): bool
-    {
-        $sql = "SELECT COUNT(*) as count FROM project_members 
-                WHERE project_id = ? AND user_id = ?";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$projectId, $userId]);
-        
-        $result = $stmt->fetch();
-        return (int)$result['count'] > 0;
-    }
-    
-    /**
-     * Check if user has access to project (owner or member)
-     */
-    public function hasAccess(int $projectId, int $userId): bool
-    {
-        $sql = "SELECT COUNT(*) as count FROM {$this->table} p
-                LEFT JOIN project_members pm ON p.id = pm.project_id
-                WHERE p.id = ? AND (p.owner_id = ? OR pm.user_id = ?)";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$projectId, $userId, $userId]);
-        
-        $result = $stmt->fetch();
-        return (int)$result['count'] > 0;
-    }
-    
-    /**
-     * Get project statistics
-     */
-    public function getProjectStatistics(int $projectId): array
-    {
-        $sql = "SELECT 
-                    COUNT(*) as total_tasks,
-                    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_tasks,
-                    COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_tasks,
-                    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_tasks,
-                    COUNT(CASE WHEN due_date < NOW() AND status != 'completed' THEN 1 END) as overdue_tasks,
-                    AVG(completion_percentage) as avg_completion
-                FROM tasks 
-                WHERE project_id = ?";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$projectId]);
-        
-        return $stmt->fetch() ?: [];
-    }
-    
-    /**
-     * Get recent tasks for project
-     */
-    public function getRecentTasks(int $projectId, int $limit = 10): array
-    {
-        $sql = "SELECT t.*, u.username as creator_name, a.username as assignee_name
-                FROM tasks t
-                LEFT JOIN users u ON t.creator_id = u.id
-                LEFT JOIN users a ON t.assignee_id = a.id
-                WHERE t.project_id = ?
-                ORDER BY t.created_at DESC
-                LIMIT ?";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$projectId, $limit]);
-        
-        return $stmt->fetchAll();
-    }
-    
-    /**
-     * Update project with validation
-     */
-    public function updateProject(int $projectId, array $data, int $userId): array
-    {
-        try {
-            $project = $this->findById($projectId);
-            
-            if (!$project) {
-                return ['success' => false, 'message' => 'Projet non trouvé'];
-            }
-            
-            // Check if user is owner or has admin role in project
-            if ($project['owner_id'] != $userId && !$this->hasAdminRole($projectId, $userId)) {
-                return ['success' => false, 'message' => 'Accès non autorisé'];
-            }
-            
-            // Validate data
-            $errors = $this->validateProjectData($data);
-            if (!empty($errors)) {
-                return ['success' => false, 'message' => 'Erreur de validation', 'errors' => $errors];
-            }
-            
-            return $this->update($projectId, $data);
-            
-        } catch (Exception $e) {
-            error_log("Update project error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
-        }
-    }
-    
-    /**
-     * Check if user has admin role in project
-     */
-    public function hasAdminRole(int $projectId, int $userId): bool
-    {
-        $sql = "SELECT role FROM project_members 
-                WHERE project_id = ? AND user_id = ? AND role IN ('owner', 'admin')";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$projectId, $userId]);
-        
-        return $stmt->fetch() !== false;
-    }
-    
-    /**
-     * Archive project
-     */
-    public function archiveProject(int $projectId, int $userId): array
-    {
-        return $this->updateProject($projectId, ['status' => self::STATUS_ARCHIVED], $userId);
-    }
-    
-    /**
-     * Complete project
-     */
-    public function completeProject(int $projectId, int $userId): array
-    {
-        return $this->updateProject($projectId, ['status' => self::STATUS_COMPLETED], $userId);
-    }
-    
-    /**
-     * Delete project with all related data
-     */
-    public function deleteProject(int $projectId, int $userId): array
-    {
-        try {
-            $project = $this->findById($projectId);
-            
-            if (!$project) {
-                return ['success' => false, 'message' => 'Projet non trouvé'];
-            }
-            
-            // Only owner can delete project
-            if ($project['owner_id'] != $userId) {
-                return ['success' => false, 'message' => 'Seul le propriétaire peut supprimer le projet'];
-            }
-            
-            // Delete related data
-            $this->db->prepare("DELETE FROM project_members WHERE project_id = ?")->execute([$projectId]);
-            $this->db->prepare("DELETE FROM task_tags WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)")->execute([$projectId]);
-            $this->db->prepare("DELETE FROM tasks WHERE project_id = ?")->execute([$projectId]);
-            $this->db->prepare("DELETE FROM tags WHERE project_id = ?")->execute([$projectId]);
-            
-            return $this->delete($projectId);
-            
-        } catch (Exception $e) {
-            error_log("Delete project error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
-        }
-    }
-    
-    /**
-     * Create project_members table if it doesn't exist
-     */
-    private function createProjectMembersTableIfNotExists(): void
-    {
-        $sql = "CREATE TABLE IF NOT EXISTS project_members (
-            id INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
-            project_id INT(11) UNSIGNED NOT NULL,
-            user_id INT(11) UNSIGNED NOT NULL,
-            role ENUM('owner', 'admin', 'member') DEFAULT 'member',
-            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            UNIQUE KEY unique_member (project_id, user_id),
-            KEY idx_project (project_id),
-            KEY idx_user (user_id),
-            CONSTRAINT fk_pm_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
-            CONSTRAINT fk_pm_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
-        
-        $this->db->exec($sql);
-    }
-    
-    /**
-     * Validate project data
-     */
-    public function validateProjectData(array $data): array
-    {
-        $errors = [];
-        
-        // Name validation
-        if (isset($data['name'])) {
-            if (empty($data['name'])) {
-                $errors['name'] = 'Le nom est obligatoire';
-            } elseif (strlen($data['name']) > 100) {
-                $errors['name'] = 'Le nom ne peut pas dépasser 100 caractères';
-            }
-        }
-        
-        // Status validation
-        if (isset($data['status'])) {
-            $validStatuses = [self::STATUS_ACTIVE, self::STATUS_ARCHIVED, self::STATUS_COMPLETED];
-            if (!in_array($data['status'], $validStatuses)) {
-                $errors['status'] = 'Statut invalide';
-            }
-        }
-        
-        // Color validation
-        if (isset($data['color']) && !preg_match('/^#[0-9A-Fa-f]{6}$/', $data['color'])) {
-            $errors['color'] = 'Format de couleur invalide (utilisez #RRGGBB)';
-        }
-        
-        // Date validation
-        if (isset($data['start_date']) && !empty($data['start_date'])) {
-            if (!strtotime($data['start_date'])) {
-                $errors['start_date'] = 'Format de date de début invalide';
-            }
-        }
-        
-        if (isset($data['end_date']) && !empty($data['end_date'])) {
-            if (!strtotime($data['end_date'])) {
-                $errors['end_date'] = 'Format de date de fin invalide';
-            }
-        }
-        
-        // Check if end date is after start date
-        if (isset($data['start_date']) && isset($data['end_date']) && 
-            !empty($data['start_date']) && !empty($data['end_date'])) {
-            if (strtotime($data['end_date']) < strtotime($data['start_date'])) {
-                $errors['end_date'] = 'La date de fin doit être postérieure à la date de début';
-            }
-        }
-        
-        return $errors;
     }
 }
+?>
