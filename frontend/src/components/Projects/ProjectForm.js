@@ -36,13 +36,13 @@ const ProjectForm = () => {
   const [availableUsers, setAvailableUsers] = useState([]);
   const [memberSearch, setMemberSearch] = useState('');
   const [showMemberSearch, setShowMemberSearch] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   useEffect(() => {
     if (isEditing) {
       fetchProject();
     }
-    fetchAvailableUsers();
-  }, [id]);
+  }, [id, isEditing]);
 
   const fetchProject = async () => {
     try {
@@ -82,10 +82,16 @@ const ProjectForm = () => {
     }
   };
 
-  const fetchAvailableUsers = async () => {
+  const fetchAvailableUsers = async (searchTerm = '') => {
+    if (!searchTerm.trim()) {
+      setAvailableUsers([]);
+      return;
+    }
+
     try {
+      setSearchLoading(true);
       const token = localStorage.getItem('token');
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/users/search?q=${memberSearch}`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/users/search?q=${encodeURIComponent(searchTerm)}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -95,13 +101,22 @@ const ProjectForm = () => {
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          setAvailableUsers(data.data.filter(user => 
-            !members.some(member => member.id === user.id) && user.id !== user.id
-          ));
+          // Filtrer les utilisateurs qui ne sont pas déjà membres
+          // et exclure l'utilisateur courant (pas nécessaire car le backend le fait déjà)
+          const filteredUsers = data.data.filter(searchUser => 
+            !members.some(member => member.id === searchUser.id)
+          );
+          setAvailableUsers(filteredUsers);
         }
+      } else {
+        console.error('Erreur lors de la recherche d\'utilisateurs:', response.status);
+        setAvailableUsers([]);
       }
     } catch (err) {
       console.error('Erreur lors de la recherche d\'utilisateurs:', err);
+      setAvailableUsers([]);
+    } finally {
+      setSearchLoading(false);
     }
   };
 
@@ -113,11 +128,24 @@ const ProjectForm = () => {
     }));
   };
 
+  const handleMemberSearchChange = (e) => {
+    const value = e.target.value;
+    setMemberSearch(value);
+    setShowMemberSearch(true);
+    
+    if (value.length >= 2) {
+      fetchAvailableUsers(value);
+    } else {
+      setAvailableUsers([]);
+    }
+  };
+
   const handleAddMember = (user, role = 'member') => {
     if (!members.some(member => member.id === user.id)) {
       setMembers(prev => [...prev, { ...user, role, pivot: { role } }]);
       setMemberSearch('');
       setShowMemberSearch(false);
+      setAvailableUsers([]);
     }
   };
 
@@ -377,11 +405,12 @@ const ProjectForm = () => {
                 <input
                   type="text"
                   value={memberSearch}
-                  onChange={(e) => {
-                    setMemberSearch(e.target.value);
-                    setShowMemberSearch(true);
-                    if (e.target.value) fetchAvailableUsers();
+                  onChange={handleMemberSearchChange}
+                  onBlur={() => {
+                    // Attendre un peu avant de fermer pour permettre les clics
+                    setTimeout(() => setShowMemberSearch(false), 200);
                   }}
+                  onFocus={() => setShowMemberSearch(true)}
                   placeholder="Rechercher des utilisateurs..."
                   className={`
                     block w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500
@@ -392,17 +421,23 @@ const ProjectForm = () => {
                   `}
                 />
                 
+                {searchLoading && (
+                  <div className="absolute right-3 top-3">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                  </div>
+                )}
+                
                 {showMemberSearch && memberSearch && availableUsers.length > 0 && (
                   <div className={`
                     absolute z-10 mt-1 w-full rounded-md shadow-lg
                     ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}
                   `}>
                     <div className="py-1 max-h-60 overflow-y-auto">
-                      {availableUsers.map(user => (
+                      {availableUsers.map(searchUser => (
                         <button
-                          key={user.id}
+                          key={searchUser.id}
                           type="button"
-                          onClick={() => handleAddMember(user)}
+                          onClick={() => handleAddMember(searchUser)}
                           className={`
                             flex items-center w-full px-4 py-2 text-sm hover:bg-gray-50 transition-colors
                             ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-700'}
@@ -410,11 +445,22 @@ const ProjectForm = () => {
                         >
                           <UserGroupIcon className="h-4 w-4 mr-3" />
                           <div className="text-left">
-                            <div className="font-medium">{user.username}</div>
-                            <div className="text-xs text-gray-500">{user.email}</div>
+                            <div className="font-medium">{searchUser.username}</div>
+                            <div className="text-xs text-gray-500">{searchUser.email}</div>
                           </div>
                         </button>
                       ))}
+                    </div>
+                  </div>
+                )}
+                
+                {showMemberSearch && memberSearch && !searchLoading && availableUsers.length === 0 && memberSearch.length >= 2 && (
+                  <div className={`
+                    absolute z-10 mt-1 w-full rounded-md shadow-lg
+                    ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'}
+                  `}>
+                    <div className="py-3 px-4 text-sm text-gray-500">
+                      Aucun utilisateur trouvé
                     </div>
                   </div>
                 )}
