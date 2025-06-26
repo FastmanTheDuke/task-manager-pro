@@ -158,12 +158,6 @@ try {
             handleUpdateTask($matches[1]);
             break;
             
-        // AJOUTEZ CE BLOC POUR LA SUPPRESSION DE PROJET
-        case preg_match('#^/api/projects/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
-            AuthMiddleware::handle();
-            handleDeleteProject($matches[1]);
-            break;
-            
         // Project routes (require authentication)
         case $path === '/api/projects' && $requestMethod === 'GET':
             AuthMiddleware::handle();
@@ -178,6 +172,27 @@ try {
         case preg_match('#^/api/projects/(\\d+)$#', $path, $matches) && $requestMethod === 'GET':
             AuthMiddleware::handle();
             handleGetProject($matches[1]);
+            break;
+            
+        case preg_match('#^/api/projects/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+            AuthMiddleware::handle();
+            handleDeleteProject($matches[1]);
+            break;
+            
+        // NOUVELLES ROUTES : Gestion des membres de projets
+        case preg_match('#^/api/projects/(\\d+)/members$#', $path, $matches) && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            handleGetProjectMembers($matches[1]);
+            break;
+            
+        case preg_match('#^/api/projects/(\\d+)/members$#', $path, $matches) && $requestMethod === 'POST':
+            AuthMiddleware::handle();
+            handleAddProjectMember($matches[1]);
+            break;
+            
+        case preg_match('#^/api/projects/(\\d+)/members/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+            AuthMiddleware::handle();
+            handleRemoveProjectMember($matches[1], $matches[2]);
             break;
             
         // Tag routes (require authentication)
@@ -263,7 +278,10 @@ try {
                         'GET /api/tasks - List tasks',
                         'POST /api/tasks - Create task',
                         'GET /api/projects - List projects',
-                        'POST /api/projects - Create project'
+                        'POST /api/projects - Create project',
+                        'GET /api/projects/{id}/members - List project members',
+                        'POST /api/projects/{id}/members - Add project member',
+                        'DELETE /api/projects/{id}/members/{userId} - Remove project member'
                     ],
                     'tip' => 'Make sure your requests are going to the correct backend endpoint'
                 ]
@@ -343,7 +361,13 @@ function handleApiInfo(): void
             'projects' => [
                 'list' => 'GET /api/projects - Liste des projets',
                 'create' => 'POST /api/projects - Créer un projet',
-                'get' => 'GET /api/projects/{id} - Détails d\'un projet'
+                'get' => 'GET /api/projects/{id} - Détails d\'un projet',
+                'delete' => 'DELETE /api/projects/{id} - Supprimer un projet',
+                'members' => [
+                    'list' => 'GET /api/projects/{id}/members - Lister les membres du projet',
+                    'add' => 'POST /api/projects/{id}/members - Ajouter un membre au projet',
+                    'remove' => 'DELETE /api/projects/{id}/members/{userId} - Retirer un membre du projet'
+                ]
             ],
             'users' => [
                 'profile' => 'GET /api/users/profile - Profil utilisateur',
@@ -903,6 +927,90 @@ function handleGetProject(int $projectId): void
     ResponseService::success($result['data']);
 }
 
+function handleDeleteProject(int $projectId): void
+{
+    $projectModel = new Project();
+    
+    // Vérifier si le projet existe
+    $project = $projectModel->findById($projectId);
+    if (!$project) {
+        ResponseService::error('Projet non trouvé', 404);
+    }
+    
+    // Récupérer l'ID de l'utilisateur et vérifier les permissions
+    $userId = AuthMiddleware::getCurrentUserId();
+    
+    // La méthode deleteProject dans le modèle vérifie déjà les permissions
+    $result = $projectModel->deleteProject($projectId, $userId);
+    
+    if (!$result['success']) {
+        // Le message d'erreur inclut la raison (ex: permission refusée)
+        ResponseService::error($result['message'] ?? 'Erreur lors de la suppression', 403);
+    }
+    
+    ResponseService::success(null, 'Projet supprimé avec succès');
+}
+
+// NOUVELLES FONCTIONS : Gestion des membres de projets
+
+function handleGetProjectMembers(int $projectId): void
+{
+    $userId = AuthMiddleware::getCurrentUserId();
+    $projectModel = new Project();
+    
+    // Vérifier que l'utilisateur a accès au projet
+    $project = $projectModel->getProjectById($projectId, $userId);
+    if (!$project['success']) {
+        ResponseService::error($project['message'] ?? 'Projet non trouvé ou accès non autorisé', 404);
+    }
+    
+    $members = $projectModel->getProjectMembers($projectId);
+    
+    ResponseService::success([
+        'project_id' => $projectId,
+        'members' => $members
+    ], 'Membres du projet récupérés avec succès');
+}
+
+function handleAddProjectMember(int $projectId): void
+{
+    $rules = [
+        'user_id' => 'required|integer',
+        'role' => 'in:viewer,member,admin'
+    ];
+    
+    $data = ValidationMiddleware::validate($rules);
+    $currentUserId = AuthMiddleware::getCurrentUserId();
+    
+    $projectModel = new Project();
+    $result = $projectModel->addMemberToProject(
+        $projectId, 
+        $data['user_id'], 
+        $data['role'] ?? 'member', 
+        $currentUserId
+    );
+    
+    if (!$result['success']) {
+        ResponseService::error($result['message'], 400);
+    }
+    
+    ResponseService::success($result['data'], $result['message'], 201);
+}
+
+function handleRemoveProjectMember(int $projectId, int $memberUserId): void
+{
+    $currentUserId = AuthMiddleware::getCurrentUserId();
+    $projectModel = new Project();
+    
+    $result = $projectModel->removeMemberFromProject($projectId, $memberUserId, $currentUserId);
+    
+    if (!$result['success']) {
+        ResponseService::error($result['message'], 400);
+    }
+    
+    ResponseService::success(null, $result['message']);
+}
+
 function handleGetProfile(): void
 {
     $userId = AuthMiddleware::getCurrentUserId();
@@ -940,29 +1048,7 @@ function handleUpdateProfile(): void
     
     ResponseService::success($result['data'], 'Profil mis à jour avec succès');
 }
-function handleDeleteProject(int $projectId): void
-{
-    $projectModel = new Project();
-    
-    // Vérifier si le projet existe
-    $project = $projectModel->findById($projectId);
-    if (!$project) {
-        ResponseService::error('Projet non trouvé', 404);
-    }
-    
-    // Récupérer l'ID de l'utilisateur et vérifier les permissions
-    $userId = AuthMiddleware::getCurrentUserId();
-    
-    // La méthode deleteProject dans le modèle vérifie déjà les permissions
-    $result = $projectModel->deleteProject($projectId, $userId);
-    
-    if (!$result['success']) {
-        // Le message d'erreur inclut la raison (ex: permission refusée)
-        ResponseService::error($result['message'] ?? 'Erreur lors de la suppression', 403);
-    }
-    
-    ResponseService::success(null, 'Projet supprimé avec succès');
-}
+
 function handleAppInfo(): void
 {
     $info = Bootstrap::getAppInfo();
