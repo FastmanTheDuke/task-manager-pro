@@ -158,9 +158,10 @@ try {
             handleUpdateTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+        // AJOUTEZ CE BLOC POUR LA SUPPRESSION DE PROJET
+        case preg_match('#^/api/projects/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
             AuthMiddleware::handle();
-            handleDeleteTask($matches[1]);
+            handleDeleteProject($matches[1]);
             break;
             
         // Project routes (require authentication)
@@ -939,7 +940,29 @@ function handleUpdateProfile(): void
     
     ResponseService::success($result['data'], 'Profil mis à jour avec succès');
 }
-
+function handleDeleteProject(int $projectId): void
+{
+    $projectModel = new Project();
+    
+    // Vérifier si le projet existe
+    $project = $projectModel->findById($projectId);
+    if (!$project) {
+        ResponseService::error('Projet non trouvé', 404);
+    }
+    
+    // Récupérer l'ID de l'utilisateur et vérifier les permissions
+    $userId = AuthMiddleware::getCurrentUserId();
+    
+    // La méthode deleteProject dans le modèle vérifie déjà les permissions
+    $result = $projectModel->deleteProject($projectId, $userId);
+    
+    if (!$result['success']) {
+        // Le message d'erreur inclut la raison (ex: permission refusée)
+        ResponseService::error($result['message'] ?? 'Erreur lors de la suppression', 403);
+    }
+    
+    ResponseService::success(null, 'Projet supprimé avec succès');
+}
 function handleAppInfo(): void
 {
     $info = Bootstrap::getAppInfo();
