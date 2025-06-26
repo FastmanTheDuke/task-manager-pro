@@ -43,7 +43,7 @@ const isTokenExpired = (token) => {
     const currentTime = Date.now() / 1000;
     
     // Considérer le token comme expiré s'il expire dans moins de 5 minutes
-    return decoded.exp < (currentTime + 300);
+    return decoded.exp < (currentTime + 86400);
   } catch (error) {
     console.error('Error decoding token:', error);
     return true;
