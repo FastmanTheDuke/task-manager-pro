@@ -6,7 +6,7 @@ import {
   FolderIcon,
   UserGroupIcon,
   CalendarIcon,
-  TrendingUpIcon,
+  ArrowTrendingUpIcon,
   PlusIcon,
   ArrowRightIcon
 } from '@heroicons/react/24/outline';
@@ -280,7 +280,7 @@ const Dashboard = () => {
                 flex items-center text-sm
                 ${productivity.trend === 'up' ? 'text-green-600' : productivity.trend === 'down' ? 'text-red-600' : 'text-gray-500'}
               `}>
-                <TrendingUpIcon className={`h-4 w-4 mr-1 ${productivity.trend === 'down' ? 'rotate-180' : ''}`} />
+                <ArrowTrendingUpIcon className={`h-4 w-4 mr-1 ${productivity.trend === 'down' ? 'rotate-180' : ''}`} />
                 {productivity.percentage > 0 && `${productivity.percentage}%`}
                 {productivity.trend === 'stable' ? 'Stable' : productivity.trend === 'up' ? 'En hausse' : 'En baisse'}
               </div>
