@@ -9,11 +9,17 @@ class AuthMiddleware {
         'POST:/api/auth/login',
         'POST:/api/auth/register',
         'POST:/api/auth/forgot-password',
+        'POST:/api/auth/refresh',
         'GET:/api/health',
         'GET:/api/info',
         'GET:/api',
         'GET:/api/debug',
-        'POST:/api/debug'
+        'POST:/api/debug',
+        'GET:/api/diagnostic',
+        'GET:/api/diagnostic/system',
+        'GET:/api/diagnostic/database',
+        'GET:/api/diagnostic/auth',
+        'GET:/api/diagnostic/api'
     ];
     
     public static function handle() {
@@ -32,18 +38,17 @@ class AuthMiddleware {
         $route = $method . ':' . $path;
         
         // Debug log
-        if (isset($_ENV['APP_DEBUG']) && $_ENV['APP_DEBUG'] === 'true') {
-            error_log("AuthMiddleware - Route: $route");
-            error_log("AuthMiddleware - Public routes: " . implode(', ', self::$publicRoutes));
-        }
+        error_log("AuthMiddleware - Route: $route");
+        error_log("AuthMiddleware - Available headers: " . json_encode(getallheaders()));
         
         // Vérifier si la route est publique
         if (in_array($route, self::$publicRoutes)) {
+            error_log("AuthMiddleware - Route is public, allowing access");
             return true;
         }
         
         // Récupérer le token
-        $token = self::getTokenFromHeader();
+        $token = JWTManager::getTokenFromHeader();
         
         if (!$token) {
             error_log("AuthMiddleware - No token found in headers");
@@ -51,14 +56,18 @@ class AuthMiddleware {
             return false;
         }
         
+        error_log("AuthMiddleware - Token found: " . substr($token, 0, 20) . "...");
+        
         // Valider le token
         $validation = JWTManager::validateToken($token);
         
         if (!$validation['valid']) {
             error_log("AuthMiddleware - Token validation failed: " . $validation['error']);
-            ResponseService::error('Token invalide: ' . $validation['error'], 401);
+            ResponseService::error($validation['error'], 401);
             return false;
         }
+        
+        error_log("AuthMiddleware - Token validation successful for user: " . $validation['data']->id);
         
         // Stocker les données utilisateur pour utilisation ultérieure
         $GLOBALS['auth_user'] = $validation['data'];
@@ -88,39 +97,5 @@ class AuthMiddleware {
     public static function getCurrentUserId() {
         $user = self::getCurrentUser();
         return $user ? $user->id : null;
-    }
-    
-    /**
-     * Récupérer le token JWT depuis les headers HTTP
-     */
-    private static function getTokenFromHeader() {
-        $headers = getallheaders();
-        
-        // Debug log
-        if (isset($_ENV['APP_DEBUG']) && $_ENV['APP_DEBUG'] === 'true') {
-            error_log("AuthMiddleware - Headers: " . json_encode($headers));
-        }
-        
-        // Vérifier différentes variantes de l'header Authorization
-        $authHeader = null;
-        
-        if (isset($headers['Authorization'])) {
-            $authHeader = $headers['Authorization'];
-        } elseif (isset($headers['authorization'])) {
-            $authHeader = $headers['authorization'];
-        } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-            $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
-        }
-        
-        if (!$authHeader) {
-            return null;
-        }
-        
-        // Extraire le token du format "Bearer <token>"
-        if (preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
-            return $matches[1];
-        }
-        
-        return null;
     }
 }
