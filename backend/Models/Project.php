@@ -187,6 +187,61 @@ class Project extends BaseModel
         }
     }
 
+    /**
+     * Récupère les projets récents pour un utilisateur donné
+     * NOUVELLE MÉTHODE pour corriger l'erreur "Call to undefined method"
+     */
+    public function getRecentProjects(int $userId, int $limit = 5): array
+    {
+        try {
+            $sql = "SELECT DISTINCT p.id, p.name, p.description, p.status, p.priority, 
+                           p.color, p.created_at, p.updated_at, p.end_date,
+                           pm.role as user_role,
+                           u.username as owner_username,
+                           (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as tasks_total,
+                           (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') as tasks_completed,
+                           COALESCE((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') * 100.0 / 
+                                   NULLIF((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id), 0), 0) as completion_percentage
+                    FROM projects p
+                    LEFT JOIN project_members pm ON p.id = pm.project_id
+                    LEFT JOIN users u ON p.owner_id = u.id
+                    WHERE (pm.user_id = :user_id OR p.is_public = 1)
+                    AND p.status != 'archived'
+                    ORDER BY p.updated_at DESC
+                    LIMIT :limit";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':user_id', $userId, PDO::PARAM_INT);
+            $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            
+            $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Ajouter des informations supplémentaires pour chaque projet
+            foreach ($projects as &$project) {
+                // Calculer les pourcentages et formater les données
+                $project['completion_percentage'] = (float)$project['completion_percentage'];
+                $project['tasks_total'] = (int)$project['tasks_total'];
+                $project['tasks_completed'] = (int)$project['tasks_completed'];
+                
+                // Ajouter le statut de progression
+                if ($project['completion_percentage'] == 100) {
+                    $project['progress_status'] = 'completed';
+                } elseif ($project['completion_percentage'] > 0) {
+                    $project['progress_status'] = 'in_progress';
+                } else {
+                    $project['progress_status'] = 'not_started';
+                }
+            }
+            
+            return $projects;
+            
+        } catch (Exception $e) {
+            error_log("Error getting recent projects: " . $e->getMessage());
+            return [];
+        }
+    }
+
     public function updateProject(int $projectId, array $data, int $userId): array
     {
         try {
