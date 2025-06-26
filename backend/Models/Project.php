@@ -8,13 +8,13 @@ use Exception;
 
 class Project extends BaseModel {
     protected string $table = 'projects';
-    
+
     protected array $fillable = [
         'name',
-        'description', 
+        'description',
         'status',
         'priority',
-        'due_date',
+        'end_date', // Corrected from due_date				   
         'color',
         'is_public',
         'created_by'
@@ -26,38 +26,41 @@ class Project extends BaseModel {
     public function createProject($data, $userId) {
         try {
             $this->db->beginTransaction();
-            
-            $sql = "INSERT INTO projects (name, description, status, priority, due_date, color, is_public, created_by, created_at) 
-                    VALUES (:name, :description, :status, :priority, :due_date, :color, :is_public, :created_by, NOW())";
-            
+
+            // Corrected SQL statement: removed priority, changed due_date to end_date
+            $sql = "INSERT INTO projects (name, description, status,priority,end_date, color, is_public, owner_id, created_at)
+                    VALUES (:name, :description, :status, :end_date, :color, :is_public, :created_by, NOW())";
+
             $stmt = $this->db->prepare($sql);
+            // Corrected execution array
             $result = $stmt->execute([
                 ':name' => $data['name'],
                 ':description' => $data['description'],
-                ':status' => $data['status'],
+                ':status' => $data['status'] ?? 'active',
                 ':priority' => $data['priority'],
-                ':due_date' => $data['due_date'],
-                ':color' => $data['color'],
-                ':is_public' => $data['is_public'] ? 1 : 0,
-                ':created_by' => $data['created_by']
+                ':end_date' => $data['due_date'] ?? null, // Map due_date to end_date
+												 
+                ':color' => $data['color'] ?? '#3B82F6',
+                ':is_public' => ($data['is_public'] ?? false) ? 1 : 0,
+                ':created_by' => $userId
             ]);
-            
+
             if (!$result) {
                 throw new Exception('Failed to create project');
             }
-            
+
             $projectId = $this->db->lastInsertId();
-            
+
             // Add creator as project owner
             $this->addMember($projectId, $userId, 'owner');
-            
+
             $this->db->commit();
-            
+
             return [
                 'success' => true,
                 'data' => $this->getProjectById($projectId, $userId)['data']
             ];
-            
+
         } catch (Exception $e) {
             $this->db->rollBack();
             return [
@@ -66,7 +69,7 @@ class Project extends BaseModel {
             ];
         }
     }
-
+    
     /**
      * Get projects for a specific user with filters
      */
@@ -251,7 +254,14 @@ class Project extends BaseModel {
             $updateFields = [];
             $params = [':project_id' => $projectId];
             
-            $allowedFields = ['name', 'description', 'status', 'priority', 'due_date', 'color', 'is_public'];
+            // Corrected allowed fields
+            $allowedFields = ['name', 'description', 'status', 'end_date', 'color', 'is_public'];
+
+            // Map due_date to end_date if it exists
+            if (isset($data['due_date'])) {
+                $data['end_date'] = $data['due_date'];
+                unset($data['due_date']);
+            }
             
             foreach ($allowedFields as $field) {
                 if (array_key_exists($field, $data)) {
