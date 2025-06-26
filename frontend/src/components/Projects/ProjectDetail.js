@@ -50,29 +50,45 @@ const ProjectDetail = () => {
       setProject(projectData.data);
 
       // Fetch project tasks
-      const tasksResponse = await fetch(`${process.env.REACT_APP_API_URL}/projects/${id}/tasks`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      try {
+        const tasksResponse = await fetch(`${process.env.REACT_APP_API_URL}/projects/${id}/tasks`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
 
-      if (tasksResponse.ok) {
-        const tasksData = await tasksResponse.json();
-        setTasks(tasksData.data || []);
+        if (tasksResponse.ok) {
+          const tasksData = await tasksResponse.json();
+          // S'assurer que tasks est toujours un tableau
+          setTasks(Array.isArray(tasksData.data) ? tasksData.data : []);
+        } else {
+          setTasks([]);
+        }
+      } catch (error) {
+        console.warn('Erreur lors du chargement des tâches:', error);
+        setTasks([]);
       }
 
       // Fetch project members
-      const membersResponse = await fetch(`${process.env.REACT_APP_API_URL}/projects/${id}/members`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      try {
+        const membersResponse = await fetch(`${process.env.REACT_APP_API_URL}/projects/${id}/members`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
 
-      if (membersResponse.ok) {
-        const membersData = await membersResponse.json();
-        setMembers(membersData.data || []);
+        if (membersResponse.ok) {
+          const membersData = await membersResponse.json();
+          // S'assurer que members est toujours un tableau
+          setMembers(Array.isArray(membersData.data) ? membersData.data : []);
+        } else {
+          setMembers([]);
+        }
+      } catch (error) {
+        console.warn('Erreur lors du chargement des membres:', error);
+        setMembers([]);
       }
 
     } catch (error) {
@@ -227,6 +243,10 @@ const ProjectDetail = () => {
   }
 
   const isOverdue = project.due_date && new Date(project.due_date) < new Date() && project.status !== 'completed';
+  
+  // S'assurer que members et tasks sont des tableaux
+  const safeMembers = Array.isArray(members) ? members : [];
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -331,7 +351,7 @@ const ProjectDetail = () => {
               <div className="text-sm text-gray-500">Total tâches</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{members.length}</div>
+              <div className="text-2xl font-bold text-purple-600">{safeMembers.length}</div>
               <div className="text-sm text-gray-500">Membres</div>
             </div>
           </div>
@@ -368,7 +388,7 @@ const ProjectDetail = () => {
             <div className="px-6 py-4 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-medium text-gray-900">
-                  Tâches ({tasks.length})
+                  Tâches ({safeTasks.length})
                 </h2>
                 <Link
                   to={`/tasks/new?project=${project.id}`}
@@ -381,12 +401,12 @@ const ProjectDetail = () => {
             </div>
             
             <div className="divide-y divide-gray-200">
-              {tasks.length === 0 ? (
+              {safeTasks.length === 0 ? (
                 <div className="px-6 py-8 text-center text-gray-500">
                   Aucune tâche dans ce projet
                 </div>
               ) : (
-                tasks.map((task) => (
+                safeTasks.map((task) => (
                   <div key={task.id} className="px-6 py-4 hover:bg-gray-50">
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
@@ -426,26 +446,26 @@ const ProjectDetail = () => {
           <div className="bg-white shadow rounded-lg">
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-medium text-gray-900">
-                Membres ({members.length})
+                Membres ({safeMembers.length})
               </h3>
             </div>
             <div className="px-6 py-4">
-              {members.length === 0 ? (
+              {safeMembers.length === 0 ? (
                 <p className="text-sm text-gray-500">Aucun membre assigné</p>
               ) : (
                 <div className="space-y-3">
-                  {members.map((member) => (
+                  {safeMembers.map((member) => (
                     <div key={member.id} className="flex items-center space-x-3">
                       <div className="flex-shrink-0">
                         <div className="h-8 w-8 bg-gray-300 rounded-full flex items-center justify-center">
                           <span className="text-sm font-medium text-gray-700">
-                            {member.name.charAt(0).toUpperCase()}
+                            {member.name ? member.name.charAt(0).toUpperCase() : '?'}
                           </span>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">
-                          {member.name}
+                          {member.name || 'Nom non disponible'}
                         </p>
                         <p className="text-sm text-gray-500 truncate">
                           {member.role || 'Membre'}
