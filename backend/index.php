@@ -231,7 +231,18 @@ try {
             AuthMiddleware::handle();
             handleUpdateProfile();
             break;
-            
+        // --- Admin User Management Routes ---
+        case $path === '/api/users' && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            // Assurez-vous que le fichier /api/users/index.php gère la logique
+            require_once __DIR__ . '/api/users/index.php';
+            break;
+        
+        case $path === '/api/users/update-role' && $requestMethod === 'POST':
+            AuthMiddleware::handle();
+            // Assurez-vous que le fichier /api/users/update_role.php gère la logique
+            require_once __DIR__ . '/api/users/update_role.php';
+            break;    
         // Application info
         case $path === '/api/info' && $requestMethod === 'GET':
             handleAppInfo();
