@@ -1,11 +1,11 @@
 <?php
 
-namespace Models;
+namespace TaskManager\Models; // Assurez-vous que le namespace est TaskManager\Models
 
-use Database\Connection;
+use TaskManager\Database\Connection; // Si vous utilisez la connexion directement
 use PDO;
 
-class Tag extends BaseModel {
+class Tag extends BaseModel { // Assurez-vous que "extends BaseModel" est présent
     protected $table = 'tags';
     
     public function __construct() {
