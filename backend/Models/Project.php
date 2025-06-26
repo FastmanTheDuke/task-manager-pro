@@ -1,16 +1,24 @@
 <?php
 
-namespace Models;
+namespace TaskManager\Models;
 
-use Database\Connection;
+use TaskManager\Database\Connection;
 use PDO;
+use Exception;
 
 class Project extends BaseModel {
-    protected $table = 'projects';
+    protected string $table = 'projects';
     
-    public function __construct() {
-        parent::__construct();
-    }
+    protected array $fillable = [
+        'name',
+        'description', 
+        'status',
+        'priority',
+        'due_date',
+        'color',
+        'is_public',
+        'created_by'
+    ];
 
     /**
      * Create a new project
@@ -35,7 +43,7 @@ class Project extends BaseModel {
             ]);
             
             if (!$result) {
-                throw new \Exception('Failed to create project');
+                throw new Exception('Failed to create project');
             }
             
             $projectId = $this->db->lastInsertId();
@@ -50,7 +58,7 @@ class Project extends BaseModel {
                 'data' => $this->getProjectById($projectId, $userId)['data']
             ];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->db->rollBack();
             return [
                 'success' => false,
@@ -166,7 +174,7 @@ class Project extends BaseModel {
                 ]
             ];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'message' => 'Error fetching projects: ' . $e->getMessage()
@@ -219,7 +227,7 @@ class Project extends BaseModel {
                 'data' => $project
             ];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'message' => 'Error fetching project: ' . $e->getMessage()
@@ -267,7 +275,7 @@ class Project extends BaseModel {
             $result = $stmt->execute($params);
             
             if (!$result) {
-                throw new \Exception('Failed to update project');
+                throw new Exception('Failed to update project');
             }
             
             return [
@@ -275,7 +283,7 @@ class Project extends BaseModel {
                 'data' => $this->getProjectById($projectId, $userId)['data']
             ];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'message' => 'Error updating project: ' . $e->getMessage()
@@ -308,14 +316,14 @@ class Project extends BaseModel {
             $result = $stmt->execute([$projectId]);
             
             if (!$result) {
-                throw new \Exception('Failed to delete project');
+                throw new Exception('Failed to delete project');
             }
             
             $this->db->commit();
             
             return ['success' => true];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->db->rollBack();
             return [
                 'success' => false,
@@ -336,7 +344,7 @@ class Project extends BaseModel {
             $stmt = $this->db->prepare($sql);
             return $stmt->execute([$projectId, $userId, $role]);
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return false;
         }
     }
@@ -348,7 +356,7 @@ class Project extends BaseModel {
         try {
             $stmt = $this->db->prepare("DELETE FROM project_members WHERE project_id = ? AND role != 'owner'");
             return $stmt->execute([$projectId]);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return false;
         }
     }
@@ -369,7 +377,7 @@ class Project extends BaseModel {
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [];
         }
     }
@@ -401,7 +409,7 @@ class Project extends BaseModel {
                 'data' => $this->getProjectById($projectId, $userId)['data']
             ];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'message' => 'Error toggling favorite: ' . $e->getMessage()
@@ -440,7 +448,7 @@ class Project extends BaseModel {
                 'data' => $this->getProjectById($projectId, $userId)['data']
             ];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'message' => 'Error toggling archive: ' . $e->getMessage()
@@ -457,7 +465,8 @@ class Project extends BaseModel {
                         COUNT(*) as total,
                         SUM(CASE WHEN p.status = 'active' THEN 1 ELSE 0 END) as active,
                         SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN p.due_date < NOW() AND p.status != 'completed' THEN 1 ELSE 0 END) as overdue
+                        SUM(CASE WHEN p.due_date < NOW() AND p.status != 'completed' THEN 1 ELSE 0 END) as overdue,
+                        SUM(CASE WHEN p.is_archived = 0 THEN 1 ELSE 0 END) as not_archived
                     FROM projects p
                     LEFT JOIN project_members pm ON p.id = pm.project_id
                     WHERE (pm.user_id = ? OR p.is_public = 1)
@@ -466,15 +475,49 @@ class Project extends BaseModel {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$userId]);
             
-            return $stmt->fetch(PDO::FETCH_ASSOC);
+            return $stmt->fetch(PDO::FETCH_ASSOC) ?: [
+                'total' => 0,
+                'active' => 0,
+                'completed' => 0,
+                'overdue' => 0,
+                'not_archived' => 0
+            ];
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
+            error_log('Project stats error: ' . $e->getMessage());
             return [
                 'total' => 0,
                 'active' => 0,
                 'completed' => 0,
-                'overdue' => 0
+                'overdue' => 0,
+                'not_archived' => 0
             ];
+        }
+    }
+
+    /**
+     * Get recent projects for a user
+     */
+    public function getRecentProjects($userId, $limit = 5) {
+        try {
+            $sql = "SELECT p.id, p.name, p.status, p.color, p.updated_at,
+                           (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as tasks_total,
+                           (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') as tasks_completed
+                    FROM projects p
+                    LEFT JOIN project_members pm ON p.id = pm.project_id
+                    WHERE (pm.user_id = ? OR p.is_public = 1)
+                    AND p.is_archived = 0
+                    ORDER BY p.updated_at DESC
+                    LIMIT ?";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$userId, $limit]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            error_log('Recent projects error: ' . $e->getMessage());
+            return [];
         }
     }
 
@@ -486,7 +529,7 @@ class Project extends BaseModel {
             $sql = "SELECT t.id, t.title, t.status, t.priority, t.due_date, t.created_at,
                            u.username as assigned_to_username
                     FROM tasks t
-                    LEFT JOIN users u ON t.assigned_to = u.id
+                    LEFT JOIN users u ON t.assignee_id = u.id
                     WHERE t.project_id = ?
                     ORDER BY t.updated_at DESC
                     LIMIT ?";
@@ -496,7 +539,7 @@ class Project extends BaseModel {
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [];
         }
     }
@@ -519,9 +562,8 @@ class Project extends BaseModel {
             
             return empty($requiredRoles) || in_array($member['role'], $requiredRoles);
             
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return false;
         }
     }
 }
-?>
