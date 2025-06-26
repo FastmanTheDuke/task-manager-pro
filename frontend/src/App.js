@@ -14,6 +14,7 @@ import ProjectList from './components/Projects/ProjectList';
 import ProjectForm from './components/Projects/ProjectForm';
 import TagManager from './components/Tags/TagManager';
 import TimeTracker from './components/TimeTracking/TimeTracker';
+import Calendar from './components/Calendar/Calendar';
 import './styles/index.css';
 
 function App() {
@@ -52,8 +53,10 @@ function App() {
               {/* Time Tracking Routes */}
               <Route path="time-tracking" element={<TimeTracker />} />
               
+              {/* Calendar Routes */}
+              <Route path="calendar" element={<Calendar />} />
+              
               {/* Autres routes à implémenter */}
-              <Route path="calendar" element={<div>Calendrier (à venir)</div>} />
               <Route path="reports" element={<div>Rapports (à venir)</div>} />
               <Route path="profile" element={<div>Profil (à venir)</div>} />
               <Route path="settings" element={<div>Paramètres (à venir)</div>} />
