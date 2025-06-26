@@ -112,7 +112,7 @@ const TaskDetail = () => {
     return (
       <div className="bg-red-50 border border-red-200 rounded-md p-4">
         <p className="text-red-800">{error}</p>
-        <button 
+        <button
           onClick={() => navigate('/tasks')}
           className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
         >
@@ -126,8 +126,8 @@ const TaskDetail = () => {
     return (
       <div className="text-center py-8">
         <p className="text-gray-500">Tâche non trouvée</p>
-        <Link 
-          to="/tasks" 
+        <Link
+          to="/tasks"
           className="mt-2 inline-block text-blue-600 hover:text-blue-800 underline"
         >
           Retour à la liste des tâches
@@ -153,7 +153,7 @@ const TaskDetail = () => {
               </span>
             </div>
           </div>
-          
+
           <div className="flex space-x-2 ml-4">
             <Link
               to={`/tasks/${id}/edit`}
@@ -180,8 +180,8 @@ const TaskDetail = () => {
               <span>{task.progress}%</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                 style={{ width: `${task.progress}%` }}
               ></div>
             </div>
@@ -225,7 +225,7 @@ const TaskDetail = () => {
                   <dd className="text-sm text-gray-900 mt-1">{task.assignee_name}</dd>
                 </div>
               )}
-              
+
               {/* Creator */}
               {task.creator_name && (
                 <div>
@@ -236,7 +236,7 @@ const TaskDetail = () => {
                   <dd className="text-sm text-gray-900 mt-1">{task.creator_name}</dd>
                 </div>
               )}
-              
+
               {/* Due Date */}
               {task.due_date && (
                 <div>
@@ -249,7 +249,7 @@ const TaskDetail = () => {
                   </dd>
                 </div>
               )}
-              
+
               {/* Start Date */}
               {task.start_date && (
                 <div>
@@ -262,7 +262,7 @@ const TaskDetail = () => {
                   </dd>
                 </div>
               )}
-              
+
               {/* Estimated Hours */}
               {task.estimated_hours && (
                 <div>
@@ -273,7 +273,7 @@ const TaskDetail = () => {
                   <dd className="text-sm text-gray-900 mt-1">{task.estimated_hours}h</dd>
                 </div>
               )}
-              
+
               {/* Actual Hours */}
               {task.actual_hours && task.actual_hours > 0 && (
                 <div>
@@ -284,17 +284,19 @@ const TaskDetail = () => {
                   <dd className="text-sm text-gray-900 mt-1">{task.actual_hours}h</dd>
                 </div>
               )}
-              
+
               {/* Created */}
-              <div>
-                <dt className="text-sm font-medium text-gray-500">Créé le</dt>
-                <dd className="text-sm text-gray-900 mt-1">
-                  {format(new Date(task.created_at), 'PPP à p', { locale: fr })}
-                </dd>
-              </div>
-              
+              {task.created_at && (
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Créé le</dt>
+                  <dd className="text-sm text-gray-900 mt-1">
+                    {format(new Date(task.created_at), 'PPP à p', { locale: fr })}
+                  </dd>
+                </div>
+              )}
+
               {/* Updated */}
-              {task.updated_at !== task.created_at && (
+              {task.updated_at && task.updated_at !== task.created_at && (
                 <div>
                   <dt className="text-sm font-medium text-gray-500">Modifié le</dt>
                   <dd className="text-sm text-gray-900 mt-1">
