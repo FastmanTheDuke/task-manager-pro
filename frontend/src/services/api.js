@@ -28,11 +28,37 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
+// Fonction pour vérifier si le token est expiré
+const isTokenExpired = (token) => {
+  if (!token) return true;
+  
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    
+    const decoded = JSON.parse(jsonPayload);
+    const currentTime = Date.now() / 1000;
+    
+    // Considérer le token comme expiré s'il expire dans moins de 5 minutes
+    return decoded.exp < (currentTime + 300);
+  } catch (error) {
+    console.error('Error decoding token:', error);
+    return true;
+  }
+};
+
 // Intercepteur pour ajouter le token à chaque requête
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
+      // Vérifier si le token est expiré avant de l'envoyer
+      if (isTokenExpired(token)) {
+        console.log('Token is expired, will attempt refresh');
+      }
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -47,6 +73,8 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    console.log('API Error:', error.response?.status, error.response?.data?.message);
 
     // Si token expiré ou invalide
     if (error.response?.status === 401 && !originalRequest._retry) {
@@ -69,6 +97,8 @@ api.interceptors.response.use(
       
       if (token) {
         try {
+          console.log('Attempting to refresh token...');
+          
           // Essayer de rafraîchir le token
           const response = await axios.post(`${API_URL}/auth/refresh`, {}, {
             headers: {
@@ -77,9 +107,13 @@ api.interceptors.response.use(
             }
           });
           
+          console.log('Token refresh response:', response.data);
+          
           if (response.data.success) {
             const { token: newToken } = response.data.data;
             localStorage.setItem('token', newToken);
+            
+            console.log('Token refreshed successfully');
             
             // Traiter la queue des requêtes en attente
             processQueue(null, newToken);
@@ -89,12 +123,17 @@ api.interceptors.response.use(
             return api(originalRequest);
           }
         } catch (refreshError) {
-          console.log('Token refresh failed:', refreshError);
+          console.error('Token refresh failed:', refreshError.response?.data || refreshError.message);
           processQueue(refreshError, null);
           
           // Token invalide, déconnecter l'utilisateur
           localStorage.removeItem('token');
           localStorage.removeItem('user');
+          
+          // Afficher un message à l'utilisateur
+          if (typeof window !== 'undefined' && window.alert) {
+            window.alert('Votre session a expiré. Vous allez être redirigé vers la page de connexion.');
+          }
           
           // Rediriger vers login seulement si on n'y est pas déjà
           if (!window.location.pathname.includes('/login')) {
@@ -107,6 +146,7 @@ api.interceptors.response.use(
         }
       } else {
         // Pas de token, rediriger vers login
+        console.log('No token found, redirecting to login');
         if (!window.location.pathname.includes('/login')) {
           window.location.href = '/login';
         }
@@ -117,6 +157,7 @@ api.interceptors.response.use(
 
     // Pour les autres erreurs, vérifier si c'est un problème d'authentification
     if (error.response?.status === 401) {
+      console.log('401 error, clearing auth and redirecting');
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       if (!window.location.pathname.includes('/login')) {
