@@ -292,21 +292,30 @@ class User extends BaseModel
     }
     
     /**
-     * Search users by name or email
+     * Search users by name or email (with option to exclude current user)
      */
-    public function searchUsers(string $query, int $limit = 10): array
+    public function searchUsers(string $query, ?int $excludeUserId = null, int $limit = 20): array
     {
         $searchTerm = "%{$query}%";
         
         $sql = "SELECT id, username, email, first_name, last_name, avatar, role, status 
                 FROM {$this->table} 
                 WHERE (username LIKE ? OR email LIKE ? OR first_name LIKE ? OR last_name LIKE ?) 
-                AND status = ?
-                ORDER BY username ASC 
-                LIMIT ?";
+                AND status = ?";
+        
+        $params = [$searchTerm, $searchTerm, $searchTerm, $searchTerm, self::STATUS_ACTIVE];
+        
+        // Exclude current user if specified
+        if ($excludeUserId !== null) {
+            $sql .= " AND id != ?";
+            $params[] = $excludeUserId;
+        }
+        
+        $sql .= " ORDER BY username ASC LIMIT ?";
+        $params[] = $limit;
         
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$searchTerm, $searchTerm, $searchTerm, $searchTerm, self::STATUS_ACTIVE, $limit]);
+        $stmt->execute($params);
         
         return $stmt->fetchAll();
     }
