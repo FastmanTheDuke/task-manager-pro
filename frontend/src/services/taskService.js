@@ -17,10 +17,12 @@ const taskService = {
       }
 
       const response = await api.get(`/tasks?${params}`);
+      // The backend wraps the response in a "data" object.
+      // We need to access response.data.data to get to the tasks and pagination.
       return {
         success: true,
-        data: response.data.data,
-        pagination: response.data.pagination,
+        data: response.data.data.tasks,
+        pagination: response.data.data.pagination,
       };
     } catch (error) {
       return {
