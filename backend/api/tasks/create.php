@@ -51,7 +51,10 @@ try {
     if (isset($data['start_date']) && $data['start_date'] === '') {
         $data['start_date'] = null;
     }
-    
+    // Juste avant de créer ou de mettre à jour la tâche
+    if (isset($data['estimated_hours']) && $data['estimated_hours'] === '') {
+        $data['estimated_hours'] = null;
+    }
     // Set default values
     $data['status'] = $data['status'] ?? 'pending';
     $data['priority'] = $data['priority'] ?? 'medium';
