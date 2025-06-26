@@ -21,8 +21,15 @@ export const AuthProvider = ({ children }) => {
     const currentUser = authService.getCurrentUser();
     if (currentUser && authService.isAuthenticated()) {
       setUser(currentUser);
-      // Connecter aux notifications WebSocket
-      notificationService.connect(currentUser.id);
+      
+      // Connecter aux notifications WebSocket seulement si activé
+      // Pour l'instant, on désactive les WebSockets jusqu'à ce que le serveur soit configuré
+      if (process.env.REACT_APP_ENABLE_WEBSOCKET === 'true') {
+        notificationService.enable();
+        notificationService.connect(currentUser.id);
+      } else {
+        console.log('WebSocket notifications disabled in configuration');
+      }
     }
     setLoading(false);
   }, []);
@@ -31,7 +38,12 @@ export const AuthProvider = ({ children }) => {
     const result = await authService.login(login, password);
     if (result.success) {
       setUser(result.user);
-      notificationService.connect(result.user.id);
+      
+      // Connecter aux notifications seulement si activé
+      if (process.env.REACT_APP_ENABLE_WEBSOCKET === 'true') {
+        notificationService.enable();
+        notificationService.connect(result.user.id);
+      }
     }
     return result;
   };
@@ -40,7 +52,12 @@ export const AuthProvider = ({ children }) => {
     const result = await authService.register(userData);
     if (result.success) {
       setUser(result.user);
-      notificationService.connect(result.user.id);
+      
+      // Connecter aux notifications seulement si activé
+      if (process.env.REACT_APP_ENABLE_WEBSOCKET === 'true') {
+        notificationService.enable();
+        notificationService.connect(result.user.id);
+      }
     }
     return result;
   };
@@ -69,5 +86,5 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>>;
 };
