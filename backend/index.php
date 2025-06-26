@@ -130,6 +130,12 @@ try {
             handleTokenRefresh();
             break;
             
+        // Dashboard route (requires authentication)
+        case $path === '/api/dashboard' && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            handleDashboard();
+            break;
+            
         // Task routes (require authentication)
         case $path === '/api/tasks' && $requestMethod === 'GET':
             AuthMiddleware::handle();
@@ -141,17 +147,17 @@ try {
             handleCreateTask();
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'GET':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'GET':
             AuthMiddleware::handle();
             handleGetTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'PUT':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'PUT':
             AuthMiddleware::handle();
             handleUpdateTask($matches[1]);
             break;
             
-        case preg_match('#^/api/tasks/(\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
+        case preg_match('#^/api/tasks/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
             AuthMiddleware::handle();
             handleDeleteTask($matches[1]);
             break;
@@ -209,6 +215,7 @@ try {
                         'POST /api/auth/register - Register',
                         'POST /api/auth/logout - Logout',
                         'GET|POST /api/debug - Debug info',
+                        'GET /api/dashboard - Dashboard data',
                         'GET /api/tasks - List tasks',
                         'POST /api/tasks - Create task'
                     ],
@@ -279,6 +286,7 @@ function handleApiInfo(): void
                 'logout' => 'POST /api/auth/logout - Déconnexion',
                 'refresh' => 'POST /api/auth/refresh - Renouvellement de token'
             ],
+            'dashboard' => 'GET /api/dashboard - Données du tableau de bord',
             'tasks' => [
                 'list' => 'GET /api/tasks - Liste des tâches (authentification requise)',
                 'create' => 'POST /api/tasks - Créer une tâche (authentification requise)',
@@ -528,6 +536,20 @@ function handleTokenRefresh(): void
         'token' => $newToken,
         'expires_in' => 3600
     ], 'Token renouvelé');
+}
+
+function handleDashboard(): void
+{
+    try {
+        $userId = AuthMiddleware::getCurrentUserId();
+        
+        // Include the dashboard handler
+        require_once __DIR__ . '/api/dashboard/index.php';
+        
+    } catch (\Exception $e) {
+        error_log('Dashboard error: ' . $e->getMessage());
+        ResponseService::error('Erreur lors du chargement du dashboard', 500);
+    }
 }
 
 function handleGetTasks(): void
