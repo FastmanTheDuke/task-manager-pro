@@ -13,11 +13,12 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
+import { ShieldCheckIcon } from '@heroicons/react/24/outline'; // Ajoutez cette icône
 
 const Sidebar = ({ open, onClose }) => {
   const location = useLocation();
   const { user } = useAuth();
-
+  
   const navigation = [
     {
       name: 'Tableau de bord',
@@ -77,7 +78,14 @@ const Sidebar = ({ open, onClose }) => {
       current: location.pathname === '/settings'
     }
   ];
-
+  const adminNavigation = [
+      {
+          name: 'Gestion Utilisateurs',
+          href: '/admin/users',
+          icon: ShieldCheckIcon,
+          current: location.pathname.startsWith('/admin')
+      }
+  ];
   return (
     <>
       {/* Overlay mobile */}
@@ -166,6 +174,47 @@ const Sidebar = ({ open, onClose }) => {
                 );
               })}
             </div>
+            {/* AJOUTER CETTE SECTION */}
+            {user && user.role === 'admin' && (
+                <>
+                    <div className="border-t border-gray-200 dark:border-gray-700 my-4"></div>
+                    <div className="space-y-1">
+                        <p className="px-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Administration
+                        </p>
+                        {adminNavigation.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                                <Link
+                                    key={item.name}
+                                    to={item.href}
+                                    onClick={() => onClose()}
+                                    className={`
+                                        group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200
+                                        ${
+                                            item.current
+                                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
+                                            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
+                                        }
+                                    `}
+                                >
+                                    <Icon
+                                        className={`
+                                            mr-3 w-5 h-5 flex-shrink-0
+                                            ${
+                                                item.current
+                                                ? 'text-blue-500 dark:text-blue-300'
+                                                : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-400 dark:group-hover:text-gray-300'
+                                            }
+                                        `}
+                                    />
+                                    {item.name}
+                                </Link>
+                            );
+                        })}
+                    </div>
+                </>
+            )}
 
             {/* Divider */}
             <div className="border-t border-gray-200 dark:border-gray-700 my-4"></div>
