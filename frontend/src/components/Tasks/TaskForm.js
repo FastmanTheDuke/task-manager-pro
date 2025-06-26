@@ -211,10 +211,12 @@ const TaskForm = () => {
                       message: 'Format invalide (ex: 2.5)',
                     },
                   })}
-                  type="text"
+                  type="number"  // Changez "text" en "number"
+                  step="0.01"   // Permet les décimales
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:text-white"
                   placeholder="2.5"
                 />
+                  
                 {errors.estimated_hours && (
                   <p className="mt-1 text-sm text-red-600">{errors.estimated_hours.message}</p>
                 )}
