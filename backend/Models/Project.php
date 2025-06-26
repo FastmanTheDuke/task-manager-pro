@@ -233,7 +233,8 @@ class Project extends BaseModel {
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Error fetching project: ' . $e->getMessage()
+                'message' => 'Error fetching project: ' . $e->getMessage(),
+		 'data' => null   
             ];
         }
     }
@@ -246,8 +247,9 @@ class Project extends BaseModel {
             // Check if user has permission to update
             if (!$this->hasProjectPermission($projectId, $userId, ['owner', 'admin'])) {
                 return [
-                    'success' => false,
-                    'message' => 'Insufficient permissions to update project'
+                    	'success' => false,
+                    	'message' => 'Insufficient permissions to update project',
+			'data' => null
                 ];
             }
             
@@ -272,8 +274,9 @@ class Project extends BaseModel {
             
             if (empty($updateFields)) {
                 return [
-                    'success' => false,
-                    'message' => 'No valid fields to update'
+                    	'success' => false,
+                    	'message' => 'No valid fields to update',
+			'data' => null
                 ];
             }
             
@@ -296,7 +299,8 @@ class Project extends BaseModel {
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Error updating project: ' . $e->getMessage()
+                'message' => 'Error updating project: ' . $e->getMessage(),
+		    'data' => null
             ];
         }
     }
@@ -310,7 +314,8 @@ class Project extends BaseModel {
             if (!$this->hasProjectPermission($projectId, $userId, ['owner'])) {
                 return [
                     'success' => false,
-                    'message' => 'Only project owners can delete projects'
+                    'message' => 'Only project owners can delete projects',
+			'data' => null
                 ];
             }
             
@@ -337,7 +342,8 @@ class Project extends BaseModel {
             $this->db->rollBack();
             return [
                 'success' => false,
-                'message' => 'Error deleting project: ' . $e->getMessage()
+                'message' => 'Error deleting project: ' . $e->getMessage(),
+		    'data' => null
             ];
         }
     }
@@ -422,7 +428,8 @@ class Project extends BaseModel {
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Error toggling favorite: ' . $e->getMessage()
+                'message' => 'Error toggling favorite: ' . $e->getMessage(),
+		    'data' => null
             ];
         }
     }
@@ -461,7 +468,8 @@ class Project extends BaseModel {
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Error toggling archive: ' . $e->getMessage()
+                'message' => 'Error toggling archive: ' . $e->getMessage(),
+		    'data' => null
             ];
         }
     }
