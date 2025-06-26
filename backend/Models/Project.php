@@ -9,39 +9,33 @@ class Project extends BaseModel
 {
     protected string $table = 'projects';
 
-    // Correction des champs pour correspondre à la base de données
     protected array $fillable = [
         'name',
         'description',
         'status',
         'priority',
-        'end_date', // Utiliser end_date qui correspond à due_date dans la DB
+        'end_date',
         'color',
         'is_public',
-        'owner_id' // Le propriétaire est `owner_id` dans la DB
+        'owner_id'
     ];
 
-    /**
-     * Crée un nouveau projet et assigne le créateur comme propriétaire.
-     */
     public function createProject(array $data, int $userId): array
     {
         try {
             $this->db->beginTransaction();
 
-            // Préparation des données avec les valeurs par défaut
             $projectData = [
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
                 'status' => $data['status'] ?? 'active',
                 'priority' => $data['priority'] ?? 'medium',
-                'end_date' => $data['due_date'] ?? null, // Mapping de due_date du formulaire vers end_date de la DB
+                'end_date' => $data['due_date'] ?? null,
                 'color' => $data['color'] ?? '#3B82F6',
                 'is_public' => (isset($data['is_public']) && $data['is_public']) ? 1 : 0,
                 'owner_id' => $userId
             ];
 
-            // Création du projet en utilisant la méthode parente
             $result = $this->create($projectData);
 
             if (!$result['success']) {
@@ -50,13 +44,8 @@ class Project extends BaseModel
             }
 
             $projectId = $result['id'];
-
-            // Ajout du créateur comme membre avec le rôle 'owner'
             $this->addMember($projectId, $userId, 'owner');
-
             $this->db->commit();
-
-            // Retourner les détails complets du projet créé
             return $this->getProjectById($projectId, $userId);
 
         } catch (Exception $e) {
@@ -66,9 +55,6 @@ class Project extends BaseModel
         }
     }
     
-    /**
-     * Récupère les projets pour un utilisateur avec filtres et pagination.
-     */
     public function getProjectsForUser(int $userId, array $filters = [], int $page = 1, int $limit = 50): array
     {
         try {
@@ -92,22 +78,26 @@ class Project extends BaseModel
 
             $whereClause = implode(' AND ', $whereConditions);
 
+            // Correction pour le tri
             $sortBy = 'p.updated_at';
-            $sortOrder = 'DESC';
-            $validSorts = ['name', 'created_at', 'updated_at', 'end_date', 'completion_percentage'];
-            if (!empty($filters['sortBy']) && in_array($filters['sortBy'], $validSorts)) {
-                $sortBy = 'p.' . $filters['sortBy'];
+            if (!empty($filters['sortBy'])) {
+                $validSorts = ['name', 'created_at', 'updated_at', 'end_date', 'completion_percentage'];
+                $sortField = $filters['sortBy'] === 'due_date' ? 'end_date' : $filters['sortBy'];
+                if (in_array($sortField, $validSorts)) {
+                    $sortBy = "p.$sortField";
+                }
             }
+            
+            $sortOrder = 'DESC';
             if (!empty($filters['sortOrder']) && in_array(strtolower($filters['sortOrder']), ['asc', 'desc'])) {
                 $sortOrder = strtoupper($filters['sortOrder']);
             }
             $orderByClause = "$sortBy $sortOrder";
             
-            // ** CORRECTION SQL ICI **
+            // ** CORRECTION SQL : Retrait de la jointure sur project_favorites **
             $sql = "SELECT DISTINCT p.*, 
                            pm.role as user_role,
                            u.username as owner_username,
-                           (pf.project_id IS NOT NULL) as is_favorite, -- Correction ici
                            (SELECT COUNT(*) FROM project_members pm2 WHERE pm2.project_id = p.id) as members_count,
                            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as tasks_total,
                            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') as tasks_completed,
@@ -116,7 +106,6 @@ class Project extends BaseModel
                     FROM projects p
                     LEFT JOIN project_members pm ON p.id = pm.project_id
                     LEFT JOIN users u ON p.owner_id = u.id
-                    LEFT JOIN project_favorites pf ON p.id = pf.project_id AND pf.user_id = :user_id
                     WHERE $whereClause
                     ORDER BY $orderByClause
                     LIMIT :limit OFFSET :offset";
@@ -137,7 +126,6 @@ class Project extends BaseModel
             $total = $countStmt->fetchColumn();
 
             foreach ($projects as &$project) {
-                $project['is_favorite'] = !empty($project['is_favorite']);
                 $project['members'] = $this->getProjectMembers($project['id']);
             }
 
@@ -161,16 +149,13 @@ class Project extends BaseModel
         }
     }
 
-    /**
-     * Récupère un projet spécifique par son ID.
-     */
     public function getProjectById(int $projectId, int $userId): array
     {
         try {
+            // ** CORRECTION SQL : Retrait de la jointure sur project_favorites **
             $sql = "SELECT p.*, 
                            pm.role as user_role,
                            u.username as owner_username,
-                           (pf.project_id IS NOT NULL) as is_favorite,
                            (SELECT COUNT(*) FROM project_members pm2 WHERE pm2.project_id = p.id) as members_count,
                            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as tasks_total,
                            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') as tasks_completed,
@@ -179,7 +164,6 @@ class Project extends BaseModel
                     FROM projects p
                     LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = :user_id
                     LEFT JOIN users u ON p.owner_id = u.id
-                    LEFT JOIN project_favorites pf ON p.id = pf.project_id AND pf.user_id = :user_id
                     WHERE p.id = :project_id 
                     AND (pm.user_id = :user_id OR p.is_public = 1)";
             
@@ -192,7 +176,6 @@ class Project extends BaseModel
                 return ['success' => false, 'message' => 'Projet non trouvé ou accès non autorisé'];
             }
             
-            $project['is_favorite'] = !empty($project['is_favorite']);
             $project['members'] = $this->getProjectMembers($projectId);
             $project['recent_tasks'] = $this->getRecentProjectTasks($projectId, 5);
             
@@ -204,9 +187,6 @@ class Project extends BaseModel
         }
     }
 
-    /**
-     * Met à jour un projet.
-     */
     public function updateProject(int $projectId, array $data, int $userId): array
     {
         try {
@@ -214,7 +194,6 @@ class Project extends BaseModel
                 return ['success' => false, 'message' => 'Permissions insuffisantes pour mettre à jour ce projet.'];
             }
             
-            // Map due_date to end_date if it exists
             if (isset($data['due_date'])) {
                 $data['end_date'] = $data['due_date'];
                 unset($data['due_date']);
@@ -228,9 +207,6 @@ class Project extends BaseModel
         }
     }
 
-    /**
-     * Supprime un projet.
-     */
     public function deleteProject(int $projectId, int $userId): array
     {
         try {
@@ -246,9 +222,6 @@ class Project extends BaseModel
         }
     }
 
-    /**
-     * Ajoute un membre à un projet.
-     */
     public function addMember(int $projectId, int $userId, string $role = 'member'): bool
     {
         try {
@@ -265,9 +238,6 @@ class Project extends BaseModel
         }
     }
 
-    /**
-     * Récupère les membres d'un projet.
-     */
     public function getProjectMembers(int $projectId): array
     {
         try {
@@ -288,9 +258,6 @@ class Project extends BaseModel
         }
     }
 
-    /**
-     * Vérifie si un utilisateur a une permission spécifique sur un projet.
-     */
     public function hasProjectPermission(int $projectId, int $userId, array $requiredRoles = []): bool
     {
         try {
@@ -312,8 +279,6 @@ class Project extends BaseModel
             return false;
         }
     }
-
-    // --- Les autres fonctions que vous pourriez avoir perdu ---
 
     public function getProjectStats(int $userId): array
     {
