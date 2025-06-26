@@ -11,6 +11,7 @@ import TaskList from './components/Tasks/TaskList';
 import TaskDetail from './components/Tasks/TaskDetail';
 import TaskForm from './components/Tasks/TaskForm';
 import ProjectList from './components/Projects/ProjectList';
+import ProjectDetail from './components/Projects/ProjectDetail';
 import ProjectForm from './components/Projects/ProjectForm';
 import TagManager from './components/Tags/TagManager';
 import TimeTracker from './components/TimeTracking/TimeTracker';
@@ -45,6 +46,7 @@ function App() {
               {/* Projects Routes */}
               <Route path="projects" element={<ProjectList />} />
               <Route path="projects/new" element={<ProjectForm />} />
+              <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="projects/:id/edit" element={<ProjectForm />} />
               
               {/* Tags Routes */}
