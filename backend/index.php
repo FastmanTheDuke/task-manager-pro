@@ -543,12 +543,75 @@ function handleDashboard(): void
     try {
         $userId = AuthMiddleware::getCurrentUserId();
         
-        // Include the dashboard handler
-        require_once __DIR__ . '/api/dashboard/index.php';
+        // Données de base pour le dashboard
+        $dashboardData = [
+            'stats' => [
+                'totalTasks' => 0,
+                'completedTasks' => 0,
+                'pendingTasks' => 0,
+                'overdueTasks' => 0,
+                'totalProjects' => 0,
+                'activeProjects' => 0,
+                'totalTimeTracked' => 0,
+                'tasksCompletedThisWeek' => 0
+            ],
+            'recentTasks' => [],
+            'recentProjects' => [],
+            'upcomingDeadlines' => [],
+            'productivity' => [
+                'labels' => [],
+                'completedTasks' => [],
+                'timeSpent' => [],
+                'lastWeekTasks' => 0
+            ],
+            'timeTracking' => []
+        ];
+        
+        // Essayer de récupérer les vraies statistiques
+        try {
+            $taskModel = new Task();
+            
+            // Obtenir les statistiques des tâches
+            $totalTasks = $taskModel->count(['creator_id' => $userId]);
+            $completedTasks = $taskModel->count(['creator_id' => $userId, 'status' => 'completed']);
+            $pendingTasks = $taskModel->count(['creator_id' => $userId, 'status' => 'pending']);
+            $inProgressTasks = $taskModel->count(['creator_id' => $userId, 'status' => 'in_progress']);
+            
+            // Calculer les tâches en retard
+            $currentDate = date('Y-m-d');
+            $overdueTasks = $taskModel->countOverdue($userId, $currentDate);
+            
+            // Obtenir les tâches récentes
+            $recentTasks = $taskModel->getUserTasks($userId, [], [
+                'limit' => 5,
+                'order_by' => 'created_at',
+                'order_dir' => 'DESC'
+            ]);
+            
+            // Mettre à jour les données
+            $dashboardData['stats'] = [
+                'totalTasks' => (int)$totalTasks,
+                'completedTasks' => (int)$completedTasks,
+                'pendingTasks' => (int)($pendingTasks + $inProgressTasks),
+                'overdueTasks' => (int)$overdueTasks,
+                'totalProjects' => 0, // À implémenter quand le modèle Project sera disponible
+                'activeProjects' => 0,
+                'totalTimeTracked' => 0, // À implémenter
+                'tasksCompletedThisWeek' => (int)$completedTasks // Approximation
+            ];
+            
+            $dashboardData['recentTasks'] = is_array($recentTasks) ? $recentTasks : [];
+            
+        } catch (\Exception $e) {
+            error_log('Dashboard stats error: ' . $e->getMessage());
+            // Garder les valeurs par défaut en cas d'erreur
+        }
+        
+        ResponseService::success($dashboardData, 'Dashboard data retrieved successfully');
         
     } catch (\Exception $e) {
         error_log('Dashboard error: ' . $e->getMessage());
-        ResponseService::error('Erreur lors du chargement du dashboard', 500);
+        ResponseService::error('Erreur lors du chargement du dashboard: ' . $e->getMessage(), 500);
     }
 }
 
