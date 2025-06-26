@@ -1,328 +1,465 @@
 <?php
-namespace TaskManager\Models;
 
-use Exception;
+namespace Models;
 
-class Tag extends BaseModel
-{
-    protected string $table = 'tags';
-    protected array $fillable = [
-        'name',
-        'color',
-        'icon',
-        'user_id',
-        'project_id',
-        'is_global'
-    ];
+use Database\Connection;
+use PDO;
+
+class Tag extends BaseModel {
+    protected $table = 'tags';
     
-    /**
-     * Get tags for a specific user or global tags
-     */
-    public function getUserTags(int $userId, int $projectId = null): array
-    {
-        $sql = "SELECT * FROM {$this->table} 
-                WHERE (user_id = ? OR is_global = 1)";
-        
-        $params = [$userId];
-        
-        if ($projectId) {
-            $sql .= " AND (project_id = ? OR project_id IS NULL)";
-            $params[] = $projectId;
-        } else {
-            $sql .= " AND project_id IS NULL";
-        }
-        
-        $sql .= " ORDER BY name ASC";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        
-        return $stmt->fetchAll();
+    public function __construct() {
+        parent::__construct();
     }
-    
+
     /**
-     * Create a new tag with validation
+     * Create a new tag
      */
-    public function createTag(array $data, int $userId): array
-    {
+    public function createTag($data) {
         try {
-            // Validate required fields
-            if (empty($data['name'])) {
-                return ['success' => false, 'message' => 'Le nom du tag est obligatoire'];
-            }
+            $sql = "INSERT INTO tags (name, description, color, created_by, created_at) 
+                    VALUES (:name, :description, :color, :created_by, NOW())";
             
-            // Check if tag already exists for this user/project
-            if ($this->tagExists($data['name'], $userId, $data['project_id'] ?? null)) {
-                return ['success' => false, 'message' => 'Ce tag existe déjà'];
-            }
-            
-            // Set default values
-            $data['user_id'] = $userId;
-            $data['color'] = $data['color'] ?? '#cccccc';
-            $data['is_global'] = $data['is_global'] ?? false;
-            
-            // Only admins can create global tags
-            if ($data['is_global'] && !$this->isUserAdmin($userId)) {
-                $data['is_global'] = false;
-            }
-            
-            return $this->create($data);
-            
-        } catch (Exception $e) {
-            error_log("Create tag error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
-        }
-    }
-    
-    /**
-     * Check if a tag exists for a user/project
-     */
-    public function tagExists(string $name, int $userId, int $projectId = null): bool
-    {
-        $sql = "SELECT COUNT(*) as count FROM {$this->table} 
-                WHERE name = ? AND user_id = ?";
-        
-        $params = [$name, $userId];
-        
-        if ($projectId) {
-            $sql .= " AND project_id = ?";
-            $params[] = $projectId;
-        } else {
-            $sql .= " AND project_id IS NULL";
-        }
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        
-        $result = $stmt->fetch();
-        return (int)$result['count'] > 0;
-    }
-    
-    /**
-     * Get tags assigned to a specific task
-     */
-    public function getTaskTags(int $taskId): array
-    {
-        $sql = "SELECT t.* FROM {$this->table} t
-                INNER JOIN task_tags tt ON t.id = tt.tag_id
-                WHERE tt.task_id = ?
-                ORDER BY t.name ASC";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$taskId]);
-        
-        return $stmt->fetchAll();
-    }
-    
-    /**
-     * Assign tags to a task
-     */
-    public function assignTagsToTask(int $taskId, array $tagIds): array
-    {
-        try {
-            // First, remove existing tags
-            $this->removeTagsFromTask($taskId);
-            
-            // Then assign new tags
-            if (!empty($tagIds)) {
-                $sql = "INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?)";
-                $stmt = $this->db->prepare($sql);
-                
-                foreach ($tagIds as $tagId) {
-                    $stmt->execute([$taskId, $tagId]);
-                }
-            }
-            
-            return ['success' => true, 'message' => 'Tags assignés avec succès'];
-            
-        } catch (Exception $e) {
-            error_log("Assign tags error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
-        }
-    }
-    
-    /**
-     * Remove all tags from a task
-     */
-    public function removeTagsFromTask(int $taskId): array
-    {
-        try {
-            $sql = "DELETE FROM task_tags WHERE task_id = ?";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$taskId]);
+            $result = $stmt->execute([
+                ':name' => $data['name'],
+                ':description' => $data['description'],
+                ':color' => $data['color'],
+                ':created_by' => $data['created_by']
+            ]);
             
-            return ['success' => true, 'message' => 'Tags supprimés'];
+            if (!$result) {
+                throw new \Exception('Failed to create tag');
+            }
             
-        } catch (Exception $e) {
-            error_log("Remove tags error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+            $tagId = $this->db->lastInsertId();
+            
+            return [
+                'success' => true,
+                'data' => $this->getTagById($tagId, $data['created_by'])['data']
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error creating tag: ' . $e->getMessage()
+            ];
         }
     }
-    
+
     /**
-     * Get popular tags (most used)
+     * Get tags for a specific user with optional filtering
      */
-    public function getPopularTags(int $userId, int $limit = 10): array
-    {
-        $sql = "SELECT t.*, COUNT(tt.tag_id) as usage_count
-                FROM {$this->table} t
-                LEFT JOIN task_tags tt ON t.id = tt.tag_id
-                LEFT JOIN tasks ts ON tt.task_id = ts.id
-                WHERE (t.user_id = ? OR t.is_global = 1)
-                AND (ts.creator_id = ? OR ts.assignee_id = ? OR ts.creator_id IS NULL)
-                GROUP BY t.id
-                ORDER BY usage_count DESC, t.name ASC
-                LIMIT ?";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$userId, $userId, $userId, $limit]);
-        
-        return $stmt->fetchAll();
-    }
-    
-    /**
-     * Search tags by name
-     */
-    public function searchTags(string $query, int $userId, int $limit = 20): array
-    {
-        $searchTerm = "%{$query}%";
-        
-        $sql = "SELECT * FROM {$this->table}
-                WHERE (user_id = ? OR is_global = 1)
-                AND name LIKE ?
-                ORDER BY 
-                    CASE WHEN name LIKE ? THEN 1 ELSE 2 END,
-                    name ASC
-                LIMIT ?";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$userId, $searchTerm, "{$query}%", $limit]);
-        
-        return $stmt->fetchAll();
-    }
-    
-    /**
-     * Update tag with validation
-     */
-    public function updateTag(int $tagId, array $data, int $userId): array
-    {
+    public function getTagsForUser($userId, $search = '', $sortBy = 'name', $sortOrder = 'asc', $page = 1, $limit = 50) {
         try {
-            $tag = $this->findById($tagId);
+            $offset = ($page - 1) * $limit;
+            
+            // Build WHERE clause
+            $whereConditions = ['t.created_by = :user_id'];
+            $params = [':user_id' => $userId];
+            
+            if (!empty($search)) {
+                $whereConditions[] = "(t.name LIKE :search OR t.description LIKE :search)";
+                $params[':search'] = '%' . $search . '%';
+            }
+            
+            $whereClause = implode(' AND ', $whereConditions);
+            
+            // Validate sort parameters
+            $validSorts = ['name', 'created_at', 'updated_at', 'color'];
+            $sortBy = in_array($sortBy, $validSorts) ? $sortBy : 'name';
+            $sortOrder = in_array(strtolower($sortOrder), ['asc', 'desc']) ? strtoupper($sortOrder) : 'ASC';
+            
+            // Main query with task count
+            $sql = "SELECT t.*, 
+                           (SELECT COUNT(*) FROM task_tags tt WHERE tt.tag_id = t.id) as tasks_count,
+                           u.username as created_by_username
+                    FROM tags t
+                    LEFT JOIN users u ON t.created_by = u.id
+                    WHERE $whereClause
+                    ORDER BY t.$sortBy $sortOrder
+                    LIMIT :limit OFFSET :offset";
+            
+            $stmt = $this->db->prepare($sql);
+            
+            // Bind parameters
+            foreach ($params as $key => $value) {
+                $stmt->bindValue($key, $value);
+            }
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+            
+            $stmt->execute();
+            $tags = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Get total count for pagination
+            $countSql = "SELECT COUNT(*) as total FROM tags t WHERE $whereClause";
+            $countStmt = $this->db->prepare($countSql);
+            foreach ($params as $key => $value) {
+                $countStmt->bindValue($key, $value);
+            }
+            $countStmt->execute();
+            $total = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+            
+            return [
+                'success' => true,
+                'data' => [
+                    'tags' => $tags,
+                    'pagination' => [
+                        'page' => $page,
+                        'limit' => $limit,
+                        'total' => (int)$total,
+                        'pages' => ceil($total / $limit)
+                    ]
+                ]
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error fetching tags: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get a specific tag by ID
+     */
+    public function getTagById($tagId, $userId = null) {
+        try {
+            $sql = "SELECT t.*, 
+                           (SELECT COUNT(*) FROM task_tags tt WHERE tt.tag_id = t.id) as tasks_count,
+                           u.username as created_by_username
+                    FROM tags t
+                    LEFT JOIN users u ON t.created_by = u.id
+                    WHERE t.id = :tag_id";
+            
+            $params = [':tag_id' => $tagId];
+            
+            // If userId is provided, only return tags created by that user
+            if ($userId !== null) {
+                $sql .= " AND t.created_by = :user_id";
+                $params[':user_id'] = $userId;
+            }
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            $tag = $stmt->fetch(PDO::FETCH_ASSOC);
             
             if (!$tag) {
-                return ['success' => false, 'message' => 'Tag non trouvé'];
+                return [
+                    'success' => false,
+                    'message' => 'Tag not found or access denied'
+                ];
             }
             
-            // Check if user owns this tag or if it's global and user is admin
-            if ($tag['user_id'] != $userId && !($tag['is_global'] && $this->isUserAdmin($userId))) {
-                return ['success' => false, 'message' => 'Accès non autorisé'];
-            }
+            // Get recent tasks using this tag
+            $tag['recent_tasks'] = $this->getRecentTasksForTag($tagId, 5);
             
-            // Check for duplicate name if name is being changed
-            if (isset($data['name']) && $data['name'] !== $tag['name']) {
-                if ($this->tagExists($data['name'], $tag['user_id'], $tag['project_id'])) {
-                    return ['success' => false, 'message' => 'Ce nom de tag existe déjà'];
+            return [
+                'success' => true,
+                'data' => $tag
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error fetching tag: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Update a tag
+     */
+    public function updateTag($tagId, $data, $userId) {
+        try {
+            $updateFields = [];
+            $params = [':tag_id' => $tagId, ':user_id' => $userId];
+            
+            $allowedFields = ['name', 'description', 'color'];
+            
+            foreach ($allowedFields as $field) {
+                if (array_key_exists($field, $data)) {
+                    $updateFields[] = "$field = :$field";
+                    $params[":$field"] = $data[$field];
                 }
             }
             
-            // Only admins can modify global status
-            if (isset($data['is_global']) && !$this->isUserAdmin($userId)) {
-                unset($data['is_global']);
+            if (empty($updateFields)) {
+                return [
+                    'success' => false,
+                    'message' => 'No valid fields to update'
+                ];
             }
             
-            return $this->update($tagId, $data);
+            $updateFields[] = "updated_at = NOW()";
             
-        } catch (Exception $e) {
-            error_log("Update tag error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+            $sql = "UPDATE tags SET " . implode(', ', $updateFields) . " 
+                    WHERE id = :tag_id AND created_by = :user_id";
+            
+            $stmt = $this->db->prepare($sql);
+            $result = $stmt->execute($params);
+            
+            if (!$result || $stmt->rowCount() === 0) {
+                return [
+                    'success' => false,
+                    'message' => 'Tag not found or no changes made'
+                ];
+            }
+            
+            return [
+                'success' => true,
+                'data' => $this->getTagById($tagId, $userId)['data']
+            ];
+            
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Error updating tag: ' . $e->getMessage()
+            ];
         }
     }
-    
+
     /**
-     * Delete tag with validation
+     * Delete a tag
      */
-    public function deleteTag(int $tagId, int $userId): array
-    {
+    public function deleteTag($tagId, $userId) {
         try {
-            $tag = $this->findById($tagId);
-            
-            if (!$tag) {
-                return ['success' => false, 'message' => 'Tag non trouvé'];
-            }
-            
-            // Check if user owns this tag or if it's global and user is admin
-            if ($tag['user_id'] != $userId && !($tag['is_global'] && $this->isUserAdmin($userId))) {
-                return ['success' => false, 'message' => 'Accès non autorisé'];
-            }
+            $this->db->beginTransaction();
             
             // Remove tag from all tasks first
             $this->db->prepare("DELETE FROM task_tags WHERE tag_id = ?")->execute([$tagId]);
             
-            return $this->delete($tagId);
+            // Delete the tag
+            $stmt = $this->db->prepare("DELETE FROM tags WHERE id = ? AND created_by = ?");
+            $result = $stmt->execute([$tagId, $userId]);
             
-        } catch (Exception $e) {
-            error_log("Delete tag error: " . $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+            if (!$result || $stmt->rowCount() === 0) {
+                $this->db->rollBack();
+                return [
+                    'success' => false,
+                    'message' => 'Tag not found or access denied'
+                ];
+            }
+            
+            $this->db->commit();
+            
+            return ['success' => true];
+            
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            return [
+                'success' => false,
+                'message' => 'Error deleting tag: ' . $e->getMessage()
+            ];
         }
     }
-    
+
     /**
-     * Check if user is admin (simplified check)
+     * Check if a tag name already exists for a user
      */
-    private function isUserAdmin(int $userId): bool
-    {
-        $sql = "SELECT role FROM users WHERE id = ?";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$userId]);
-        
-        $user = $stmt->fetch();
-        return $user && $user['role'] === 'admin';
+    public function tagExistsForUser($name, $userId, $excludeTagId = null) {
+        try {
+            $sql = "SELECT id FROM tags WHERE name = :name AND created_by = :user_id";
+            $params = [':name' => $name, ':user_id' => $userId];
+            
+            if ($excludeTagId !== null) {
+                $sql .= " AND id != :exclude_id";
+                $params[':exclude_id'] = $excludeTagId;
+            }
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            return $stmt->rowCount() > 0;
+            
+        } catch (\Exception $e) {
+            return false;
+        }
     }
-    
+
     /**
-     * Validate tag data
+     * Get all tags for a user (simplified for dropdowns)
      */
-    public function validateTagData(array $data): array
-    {
-        $errors = [];
-        
-        // Name validation
-        if (empty($data['name'])) {
-            $errors['name'] = 'Le nom est obligatoire';
-        } elseif (strlen($data['name']) > 50) {
-            $errors['name'] = 'Le nom ne peut pas dépasser 50 caractères';
-        } elseif (!preg_match('/^[a-zA-Z0-9\s\-_éèêëàâäôöîïûüÿç]+$/u', $data['name'])) {
-            $errors['name'] = 'Le nom contient des caractères non autorisés';
+    public function getTagsForDropdown($userId) {
+        try {
+            $sql = "SELECT id, name, color FROM tags 
+                    WHERE created_by = :user_id 
+                    ORDER BY name ASC";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([':user_id' => $userId]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (\Exception $e) {
+            return [];
         }
-        
-        // Color validation
-        if (isset($data['color']) && !preg_match('/^#[0-9A-Fa-f]{6}$/', $data['color'])) {
-            $errors['color'] = 'Format de couleur invalide (utilisez #RRGGBB)';
-        }
-        
-        // Icon validation
-        if (isset($data['icon']) && strlen($data['icon']) > 50) {
-            $errors['icon'] = 'L\'icône ne peut pas dépasser 50 caractères';
-        }
-        
-        return $errors;
     }
-    
+
     /**
-     * Get tag statistics
+     * Get recent tasks for a specific tag
      */
-    public function getTagStatistics(int $userId): array
-    {
-        $sql = "SELECT 
-                    COUNT(*) as total_tags,
-                    COUNT(CASE WHEN is_global = 1 THEN 1 END) as global_tags,
-                    COUNT(CASE WHEN is_global = 0 THEN 1 END) as personal_tags
-                FROM {$this->table}
-                WHERE user_id = ? OR is_global = 1";
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([$userId]);
-        
-        return $stmt->fetch() ?: [];
+    public function getRecentTasksForTag($tagId, $limit = 5) {
+        try {
+            $sql = "SELECT t.id, t.title, t.status, t.priority, t.created_at,
+                           u.username as assigned_to_username
+                    FROM tasks t
+                    INNER JOIN task_tags tt ON t.id = tt.task_id
+                    LEFT JOIN users u ON t.assigned_to = u.id
+                    WHERE tt.tag_id = ?
+                    ORDER BY t.updated_at DESC
+                    LIMIT ?";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$tagId, $limit]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Add tag to a task
+     */
+    public function addTagToTask($taskId, $tagId) {
+        try {
+            $sql = "INSERT IGNORE INTO task_tags (task_id, tag_id, created_at) 
+                    VALUES (?, ?, NOW())";
+            
+            $stmt = $this->db->prepare($sql);
+            return $stmt->execute([$taskId, $tagId]);
+            
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Remove tag from a task
+     */
+    public function removeTagFromTask($taskId, $tagId) {
+        try {
+            $stmt = $this->db->prepare("DELETE FROM task_tags WHERE task_id = ? AND tag_id = ?");
+            return $stmt->execute([$taskId, $tagId]);
+            
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get tags for a specific task
+     */
+    public function getTagsForTask($taskId) {
+        try {
+            $sql = "SELECT t.id, t.name, t.color, t.description
+                    FROM tags t
+                    INNER JOIN task_tags tt ON t.id = tt.tag_id
+                    WHERE tt.task_id = ?
+                    ORDER BY t.name ASC";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$taskId]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Set tags for a task (replaces existing tags)
+     */
+    public function setTagsForTask($taskId, $tagIds) {
+        try {
+            $this->db->beginTransaction();
+            
+            // Remove existing tags
+            $this->db->prepare("DELETE FROM task_tags WHERE task_id = ?")->execute([$taskId]);
+            
+            // Add new tags
+            if (!empty($tagIds)) {
+                $sql = "INSERT INTO task_tags (task_id, tag_id, created_at) VALUES ";
+                $values = [];
+                $params = [];
+                
+                foreach ($tagIds as $index => $tagId) {
+                    $values[] = "(?, ?, NOW())";
+                    $params[] = $taskId;
+                    $params[] = $tagId;
+                }
+                
+                $sql .= implode(', ', $values);
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($params);
+            }
+            
+            $this->db->commit();
+            return true;
+            
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            return false;
+        }
+    }
+
+    /**
+     * Get tag statistics for a user
+     */
+    public function getTagStats($userId) {
+        try {
+            $sql = "SELECT 
+                        COUNT(*) as total_tags,
+                        (SELECT COUNT(*) FROM task_tags tt 
+                         INNER JOIN tags t ON tt.tag_id = t.id 
+                         WHERE t.created_by = ?) as total_tag_usages,
+                        (SELECT COUNT(DISTINCT tt.task_id) FROM task_tags tt 
+                         INNER JOIN tags t ON tt.tag_id = t.id 
+                         WHERE t.created_by = ?) as tagged_tasks
+                    FROM tags 
+                    WHERE created_by = ?";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$userId, $userId, $userId]);
+            
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+            
+        } catch (\Exception $e) {
+            return [
+                'total_tags' => 0,
+                'total_tag_usages' => 0,
+                'tagged_tasks' => 0
+            ];
+        }
+    }
+
+    /**
+     * Get most used tags for a user
+     */
+    public function getMostUsedTags($userId, $limit = 10) {
+        try {
+            $sql = "SELECT t.id, t.name, t.color, COUNT(tt.task_id) as usage_count
+                    FROM tags t
+                    LEFT JOIN task_tags tt ON t.id = tt.tag_id
+                    WHERE t.created_by = ?
+                    GROUP BY t.id, t.name, t.color
+                    ORDER BY usage_count DESC, t.name ASC
+                    LIMIT ?";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$userId, $limit]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (\Exception $e) {
+            return [];
+        }
     }
 }
+?>
