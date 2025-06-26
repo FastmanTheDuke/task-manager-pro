@@ -65,7 +65,30 @@ const Dashboard = () => {
 
       const data = await response.json();
       if (data.success) {
-        setDashboardData(data.data);
+        // S'assurer que les arrays sont toujours définis
+        const sanitizedData = {
+          ...data.data,
+          recentTasks: Array.isArray(data.data.recentTasks) ? data.data.recentTasks : [],
+          recentProjects: Array.isArray(data.data.recentProjects) ? data.data.recentProjects : [],
+          upcomingDeadlines: Array.isArray(data.data.upcomingDeadlines) ? data.data.upcomingDeadlines : [],
+          timeTracking: Array.isArray(data.data.timeTracking) ? data.data.timeTracking : [],
+          stats: {
+            totalTasks: data.data.stats?.totalTasks || 0,
+            completedTasks: data.data.stats?.completedTasks || 0,
+            pendingTasks: data.data.stats?.pendingTasks || 0,
+            overdueTasks: data.data.stats?.overdueTasks || 0,
+            totalProjects: data.data.stats?.totalProjects || 0,
+            activeProjects: data.data.stats?.activeProjects || 0,
+            totalTimeTracked: data.data.stats?.totalTimeTracked || 0,
+            tasksCompletedThisWeek: data.data.stats?.tasksCompletedThisWeek || 0
+          },
+          productivity: {
+            labels: Array.isArray(data.data.productivity?.labels) ? data.data.productivity.labels : [],
+            completedTasks: Array.isArray(data.data.productivity?.completedTasks) ? data.data.productivity.completedTasks : [],
+            timeSpent: Array.isArray(data.data.productivity?.timeSpent) ? data.data.productivity.timeSpent : []
+          }
+        };
+        setDashboardData(sanitizedData);
       } else {
         throw new Error(data.message || 'Erreur inconnue');
       }
@@ -121,6 +144,11 @@ const Dashboard = () => {
     };
     return colors[status] || colors.pending;
   };
+
+  // S'assurer que les arrays sont toujours définis avant utilisation
+  const recentTasks = Array.isArray(dashboardData.recentTasks) ? dashboardData.recentTasks : [];
+  const recentProjects = Array.isArray(dashboardData.recentProjects) ? dashboardData.recentProjects : [];
+  const upcomingDeadlines = Array.isArray(dashboardData.upcomingDeadlines) ? dashboardData.upcomingDeadlines : [];
 
   const productivity = getProductivityTrend();
 
@@ -390,7 +418,7 @@ const Dashboard = () => {
             </div>
             
             <div className="space-y-3">
-              {dashboardData.recentTasks.slice(0, 5).map(task => (
+              {recentTasks.slice(0, 5).map(task => (
                 <div key={task.id} className={`flex items-center justify-between p-3 rounded-lg ${isDark ? 'bg-gray-750' : 'bg-gray-50'}`}>
                   <div className="flex items-center space-x-3">
                     <div className={`
@@ -420,7 +448,7 @@ const Dashboard = () => {
                 </div>
               ))}
               
-              {dashboardData.recentTasks.length === 0 && (
+              {recentTasks.length === 0 && (
                 <p className={`text-sm text-center py-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   Aucune tâche récente
                 </p>
@@ -443,7 +471,7 @@ const Dashboard = () => {
             </div>
             
             <div className="space-y-3">
-              {dashboardData.upcomingDeadlines.slice(0, 5).map(task => (
+              {upcomingDeadlines.slice(0, 5).map(task => (
                 <div key={task.id} className={`flex items-center justify-between p-3 rounded-lg ${isDark ? 'bg-gray-750' : 'bg-gray-50'}`}>
                   <div className="flex items-center space-x-3">
                     <CalendarIcon className={`h-4 w-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
@@ -468,7 +496,7 @@ const Dashboard = () => {
                 </div>
               ))}
               
-              {dashboardData.upcomingDeadlines.length === 0 && (
+              {upcomingDeadlines.length === 0 && (
                 <p className={`text-sm text-center py-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   Aucune échéance prochaine
                 </p>
@@ -492,7 +520,7 @@ const Dashboard = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {dashboardData.recentProjects.slice(0, 6).map(project => (
+            {recentProjects.slice(0, 6).map(project => (
               <div key={project.id} className={`p-4 rounded-lg border ${isDark ? 'bg-gray-750 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
                 <div className="flex items-center space-x-3 mb-3">
                   <div 
@@ -526,7 +554,7 @@ const Dashboard = () => {
               </div>
             ))}
             
-            {dashboardData.recentProjects.length === 0 && (
+            {recentProjects.length === 0 && (
               <div className="col-span-full">
                 <p className={`text-sm text-center py-8 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   Aucun projet récent
