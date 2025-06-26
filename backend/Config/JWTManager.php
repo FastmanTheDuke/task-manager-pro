@@ -7,25 +7,59 @@ use Exception;
 
 class JWTManager
 {
-    private static string $secretKey;
-    private static int $expiry;
+    private static ?string $secretKey = null;
+    private static ?int $expiry = null;
+    private static bool $initialized = false;
     
     public static function init(): void
     {
-        // Load environment variables
-        $envFile = __DIR__ . '/../../.env';
-        if (file_exists($envFile)) {
-            $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-            foreach ($lines as $line) {
-                if (strpos($line, '=') !== false && strpos($line, '#') !== 0) {
-                    list($key, $value) = explode('=', $line, 2);
-                    $_ENV[trim($key)] = trim($value);
+        if (self::$initialized) {
+            return;
+        }
+        
+        // Load environment variables from multiple possible paths
+        $envPaths = [
+            __DIR__ . '/../.env',
+            __DIR__ . '/../../.env',
+            __DIR__ . '/../../../.env'
+        ];
+        
+        foreach ($envPaths as $envFile) {
+            if (file_exists($envFile)) {
+                $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                if ($lines) {
+                    foreach ($lines as $line) {
+                        if (strpos($line, '=') !== false && strpos($line, '#') !== 0) {
+                            list($key, $value) = explode('=', $line, 2);
+                            $key = trim($key);
+                            $value = trim($value, " \t\n\r\0\x0B\"'");
+                            $_ENV[$key] = $value;
+                        }
+                    }
                 }
+                break;
             }
         }
         
-        self::$secretKey = $_ENV['JWT_SECRET'] ?? 'default-secret-key';
+        // Set default values with better security
+        self::$secretKey = $_ENV['JWT_SECRET'] ?? self::generateSecretKey();
         self::$expiry = (int)($_ENV['JWT_EXPIRY'] ?? 3600);
+        
+        // Validate minimum requirements
+        if (strlen(self::$secretKey) < 32) {
+            self::$secretKey = self::generateSecretKey();
+            error_log("Warning: JWT secret key too short, generated a new one");
+        }
+        
+        self::$initialized = true;
+    }
+    
+    /**
+     * Generate a secure secret key if none is provided
+     */
+    private static function generateSecretKey(): string
+    {
+        return bin2hex(random_bytes(32));
     }
     
     /**
@@ -35,16 +69,24 @@ class JWTManager
     {
         self::init();
         
+        $now = time();
         $payload = [
-            'iat' => time(),
-            'exp' => time() + self::$expiry,
-            'id' => $userData['id'],
+            'iat' => $now,
+            'exp' => $now + self::$expiry,
+            'nbf' => $now,
+            'jti' => uniqid(),
+            'id' => (int)$userData['id'],
             'email' => $userData['email'],
             'username' => $userData['username'],
             'role' => $userData['role'] ?? 'user'
         ];
         
-        return JWT::encode($payload, self::$secretKey, 'HS256');
+        try {
+            return JWT::encode($payload, self::$secretKey, 'HS256');
+        } catch (Exception $e) {
+            error_log("JWT generation error: " . $e->getMessage());
+            throw new Exception("Token generation failed");
+        }
     }
     
     /**
@@ -55,7 +97,24 @@ class JWTManager
         try {
             self::init();
             
+            if (empty($token)) {
+                return [
+                    'valid' => false,
+                    'data' => null,
+                    'error' => 'Token vide'
+                ];
+            }
+            
             $decoded = JWT::decode($token, new Key(self::$secretKey, 'HS256'));
+            
+            // Additional validation
+            if (!isset($decoded->id) || !isset($decoded->exp)) {
+                return [
+                    'valid' => false,
+                    'data' => null,
+                    'error' => 'Token invalide: données manquantes'
+                ];
+            }
             
             return [
                 'valid' => true,
@@ -64,20 +123,45 @@ class JWTManager
             ];
             
         } catch (Exception $e) {
+            $errorMsg = 'Token invalide';
+            
+            // Provide more specific error messages
+            if (strpos($e->getMessage(), 'Expired') !== false) {
+                $errorMsg = 'Token expiré';
+            } elseif (strpos($e->getMessage(), 'Signature') !== false) {
+                $errorMsg = 'Signature du token invalide';
+            } elseif (strpos($e->getMessage(), 'malformed') !== false) {
+                $errorMsg = 'Format du token invalide';
+            }
+            
             return [
                 'valid' => false,
                 'data' => null,
-                'error' => 'Token invalide: ' . $e->getMessage()
+                'error' => $errorMsg
             ];
         }
     }
     
     /**
-     * Get token from Authorization header
+     * Get token from Authorization header with better compatibility
      */
     public static function getTokenFromHeader(): ?string
     {
-        $headers = getallheaders();
+        // Try multiple methods to get headers
+        $headers = null;
+        
+        if (function_exists('getallheaders')) {
+            $headers = getallheaders();
+        } else {
+            // Fallback for environments where getallheaders() doesn't exist
+            $headers = [];
+            foreach ($_SERVER as $key => $value) {
+                if (strpos($key, 'HTTP_') === 0) {
+                    $headerName = str_replace(' ', '-', ucwords(str_replace('_', ' ', strtolower(substr($key, 5)))));
+                    $headers[$headerName] = $value;
+                }
+            }
+        }
         
         if (!$headers) {
             return null;
@@ -98,26 +182,45 @@ class JWTManager
         
         // Extract token from "Bearer <token>" format
         if (preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
-            return $matches[1];
+            return trim($matches[1]);
         }
         
         return null;
     }
     
     /**
-     * Refresh token (generate new token with updated expiry)
+     * Refresh token with better validation
      */
     public static function refreshToken(string $token): ?string
     {
-        $validation = self::validateToken($token);
-        
-        if (!$validation['valid']) {
+        try {
+            // First, try to decode the token even if expired
+            $decoded = self::decodeToken($token);
+            
+            if (!$decoded || !isset($decoded->id)) {
+                return null;
+            }
+            
+            // Check if token is not too old (allow refresh within 24 hours of expiry)
+            $maxAge = time() - (24 * 3600); // 24 hours ago
+            if (isset($decoded->exp) && $decoded->exp < $maxAge) {
+                return null;
+            }
+            
+            // Create new token with the user data
+            $userData = [
+                'id' => $decoded->id,
+                'email' => $decoded->email,
+                'username' => $decoded->username,
+                'role' => $decoded->role ?? 'user'
+            ];
+            
+            return self::generateToken($userData);
+            
+        } catch (Exception $e) {
+            error_log("Token refresh error: " . $e->getMessage());
             return null;
         }
-        
-        $userData = (array)$validation['data'];
-        
-        return self::generateToken($userData);
     }
     
     /**
@@ -131,10 +234,23 @@ class JWTManager
                 return null;
             }
             
-            $payload = json_decode(base64_decode($parts[1]));
-            return $payload;
+            // Add padding if necessary
+            $payload = $parts[1];
+            $remainder = strlen($payload) % 4;
+            if ($remainder) {
+                $payload .= str_repeat('=', 4 - $remainder);
+            }
+            
+            $decoded = base64_decode($payload);
+            if ($decoded === false) {
+                return null;
+            }
+            
+            $json = json_decode($decoded);
+            return $json;
             
         } catch (Exception $e) {
+            error_log("Token decode error: " . $e->getMessage());
             return null;
         }
     }
@@ -164,7 +280,7 @@ class JWTManager
             return null;
         }
         
-        return $validation['data']->id ?? null;
+        return isset($validation['data']->id) ? (int)$validation['data']->id : null;
     }
     
     /**
@@ -179,5 +295,54 @@ class JWTManager
         }
         
         return $validation['data']->role ?? null;
+    }
+    
+    /**
+     * Get user data from token
+     */
+    public static function getUserFromToken(string $token): ?array
+    {
+        $validation = self::validateToken($token);
+        
+        if (!$validation['valid']) {
+            return null;
+        }
+        
+        $userData = $validation['data'];
+        return [
+            'id' => (int)$userData->id,
+            'email' => $userData->email,
+            'username' => $userData->username,
+            'role' => $userData->role ?? 'user'
+        ];
+    }
+    
+    /**
+     * Check if token will expire soon (within next 5 minutes)
+     */
+    public static function tokenExpiresSoon(string $token): bool
+    {
+        $decoded = self::decodeToken($token);
+        
+        if (!$decoded || !isset($decoded->exp)) {
+            return true;
+        }
+        
+        $fiveMinutes = 5 * 60;
+        return ($decoded->exp - time()) < $fiveMinutes;
+    }
+    
+    /**
+     * Get token expiry time
+     */
+    public static function getTokenExpiry(string $token): ?int
+    {
+        $decoded = self::decodeToken($token);
+        
+        if (!$decoded || !isset($decoded->exp)) {
+            return null;
+        }
+        
+        return $decoded->exp;
     }
 }
