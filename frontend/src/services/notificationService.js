@@ -1,118 +1,138 @@
-import api from './api';
-import { toast } from 'react-hot-toast';
 
-const notificationService = {
-  // WebSocket connection for real-time notifications
-  ws: null,
+class NotificationService {
+  constructor() {
+    this.ws = null;
+    this.retryCount = 0;
+    this.maxRetries = 3;
+    this.retryDelay = 5000; // 5 secondes
+    this.isEnabled = false; // Désactivé par défaut jusqu'à configuration
+  }
 
-  // Initialize WebSocket connection
-  connect: (userId) => {
-    if (notificationService.ws) {
+  // Méthode pour activer les WebSockets (à appeler quand le serveur WS est prêt)
+  enable() {
+    this.isEnabled = true;
+  }
+
+  // Méthode pour désactiver les WebSockets
+  disable() {
+    this.isEnabled = false;
+    this.disconnect();
+  }
+
+  connect(userId) {
+    // Ne pas essayer de se connecter si les WebSockets sont désactivés
+    if (!this.isEnabled) {
+      console.log('WebSocket notifications disabled');
       return;
     }
 
-    const wsUrl = process.env.REACT_APP_WEBSOCKET_URL || 'ws://localhost:8080';
-    notificationService.ws = new WebSocket(`${wsUrl}?userId=${userId}`);
-
-    notificationService.ws.onmessage = (event) => {
-      const notification = JSON.parse(event.data);
-      notificationService.showNotification(notification);
-    };
-
-    notificationService.ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    notificationService.ws.onclose = () => {
-      // Reconnect after 5 seconds
-      setTimeout(() => {
-        notificationService.ws = null;
-        notificationService.connect(userId);
-      }, 5000);
-    };
-  },
-
-  // Disconnect WebSocket
-  disconnect: () => {
-    if (notificationService.ws) {
-      notificationService.ws.close();
-      notificationService.ws = null;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return; // Déjà connecté
     }
-  },
 
-  // Show notification toast
-  showNotification: (notification) => {
-    const { type, title, message } = notification;
-
-    switch (type) {
-      case 'success':
-        toast.success(message || title);
-        break;
-      case 'error':
-        toast.error(message || title);
-        break;
-      case 'info':
-        toast(message || title, { icon: 'ℹ️' });
-        break;
-      case 'task_assigned':
-        toast(message || title, { icon: '📋' });
-        break;
-      case 'comment_added':
-        toast(message || title, { icon: '💬' });
-        break;
-      default:
-        toast(message || title);
-    }
-  },
-
-  // Get all notifications
-  getNotifications: async (unreadOnly = false) => {
     try {
-      const params = unreadOnly ? '?unread=true' : '';
-      const response = await api.get(`/notifications${params}`);
-      return {
-        success: true,
-        data: response.data.data,
+      const wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:8080';
+      this.ws = new WebSocket(`${wsUrl}/?userId=${userId}`);
+
+      this.ws.onopen = () => {
+        console.log('WebSocket connected');
+        this.retryCount = 0; // Reset retry count on successful connection
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const notification = JSON.parse(event.data);
+          this.handleNotification(notification);
+        } catch (error) {
+          console.error('Error parsing notification:', error);
+        }
+      };
+
+      this.ws.onerror = (error) => {
+        console.log('WebSocket error (notifications disabled):', error.type);
+        // Ne pas afficher d'erreur critique si les WebSockets ne sont pas essentiels
+      };
+
+      this.ws.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+        
+        // Tentative de reconnexion seulement si activé et si ce n'est pas une fermeture intentionnelle
+        if (this.isEnabled && event.code !== 1000 && this.retryCount < this.maxRetries) {
+          this.retryCount++;
+          console.log(`Attempting to reconnect WebSocket (${this.retryCount}/${this.maxRetries})...`);
+          setTimeout(() => this.connect(userId), this.retryDelay);
+        } else if (this.retryCount >= this.maxRetries) {
+          console.log('WebSocket max retries reached. Notifications disabled.');
+          this.isEnabled = false;
+        }
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Erreur lors de la récupération',
-      };
+      console.log('WebSocket connection failed (notifications will be disabled):', error.message);
     }
-  },
+  }
 
-  // Mark notification as read
-  markAsRead: async (id) => {
-    try {
-      const response = await api.put(`/notifications/read?id=${id}`);
-      return {
-        success: true,
-        message: response.data.message,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Erreur',
-      };
+  disconnect() {
+    if (this.ws) {
+      this.ws.close(1000, 'Disconnecting');
+      this.ws = null;
     }
-  },
+  }
 
-  // Mark all notifications as read
-  markAllAsRead: async () => {
-    try {
-      const response = await api.put('/notifications/read-all');
-      return {
-        success: true,
-        message: response.data.message,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Erreur',
-      };
+  handleNotification(notification) {
+    // Créer une notification système si supportée
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(notification.title || 'Task Manager Pro', {
+        body: notification.message,
+        icon: '/favicon.ico'
+      });
     }
-  },
-};
+
+    // Émettre un événement personnalisé pour les composants React
+    const event = new CustomEvent('taskManagerNotification', { 
+      detail: notification 
+    });
+    window.dispatchEvent(event);
+
+    // Log pour debug
+    console.log('Notification received:', notification);
+  }
+
+  // Demander la permission pour les notifications
+  async requestPermission() {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      return permission === 'granted';
+    }
+    return false;
+  }
+
+  // Envoyer une notification manuelle (fallback)
+  showNotification(title, message, type = 'info') {
+    const notification = { title, message, type, timestamp: new Date() };
+    this.handleNotification(notification);
+  }
+
+  // Vérifier si les WebSockets sont disponibles et connectés
+  isConnected() {
+    return this.ws && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  // Obtenir le statut de la connexion
+  getStatus() {
+    if (!this.isEnabled) return 'disabled';
+    if (!this.ws) return 'disconnected';
+    
+    switch (this.ws.readyState) {
+      case WebSocket.CONNECTING: return 'connecting';
+      case WebSocket.OPEN: return 'connected';
+      case WebSocket.CLOSING: return 'closing';
+      case WebSocket.CLOSED: return 'closed';
+      default: return 'unknown';
+    }
+  }
+}
+
+// Export d'une instance singleton
+const notificationService = new NotificationService();
 
 export default notificationService;
