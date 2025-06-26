@@ -1,15 +1,15 @@
 <?php
 
-namespace Models;
+namespace TaskManager\Models;
 
-use Database\Connection;
+use TaskManager\Database\Connection;
 use PDO;
 
 class TimeTracking extends BaseModel {
-    protected $table = 'time_entries';
     
     public function __construct() {
         parent::__construct();
+        $this->table = 'time_entries'; // Assigner la valeur dans le constructeur
     }
 
     /**
@@ -28,22 +28,21 @@ class TimeTracking extends BaseModel {
             
             // Verify task exists and user has access
             $taskModel = new Task();
-            $task = $taskModel->getTaskById($taskId, $userId);
-            if (!$task['success']) {
+            $task = $taskModel->findById($taskId);
+            if (!$task) {
                 return [
                     'success' => false,
                     'message' => 'Task not found or access denied'
                 ];
             }
             
-            $sql = "INSERT INTO time_entries (user_id, task_id, project_id, description, start_time, status, created_at) 
-                    VALUES (:user_id, :task_id, :project_id, :description, NOW(), 'active', NOW())";
+            $sql = "INSERT INTO time_entries (user_id, task_id, description, start_time, created_at) 
+                    VALUES (:user_id, :task_id, :description, NOW(), NOW())";
             
             $stmt = $this->db->prepare($sql);
             $result = $stmt->execute([
                 ':user_id' => $userId,
                 ':task_id' => $taskId,
-                ':project_id' => $task['data']['project_id'],
                 ':description' => $description
             ]);
             
@@ -67,52 +66,6 @@ class TimeTracking extends BaseModel {
     }
 
     /**
-     * Pause the active timer
-     */
-    public function pauseTimer($userId) {
-        try {
-            $activeTimer = $this->getActiveTimer($userId);
-            if (!$activeTimer['success'] || !$activeTimer['data']) {
-                return [
-                    'success' => false,
-                    'message' => 'No active timer found'
-                ];
-            }
-            
-            $entry = $activeTimer['data'];
-            $startTime = new \DateTime($entry['start_time']);
-            $now = new \DateTime();
-            $duration = $now->getTimestamp() - $startTime->getTimestamp();
-            
-            $sql = "UPDATE time_entries 
-                    SET end_time = NOW(), duration = :duration, status = 'paused', updated_at = NOW()
-                    WHERE id = :entry_id AND user_id = :user_id";
-            
-            $stmt = $this->db->prepare($sql);
-            $result = $stmt->execute([
-                ':duration' => $duration,
-                ':entry_id' => $entry['id'],
-                ':user_id' => $userId
-            ]);
-            
-            if (!$result) {
-                throw new \Exception('Failed to pause timer');
-            }
-            
-            return [
-                'success' => true,
-                'data' => $this->getTimeEntryById($entry['id'], $userId)['data']
-            ];
-            
-        } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error pausing timer: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
      * Stop the active timer
      */
     public function stopTimer($userId) {
@@ -131,7 +84,7 @@ class TimeTracking extends BaseModel {
             $duration = $now->getTimestamp() - $startTime->getTimestamp();
             
             $sql = "UPDATE time_entries 
-                    SET end_time = NOW(), duration = :duration, status = 'completed', updated_at = NOW()
+                    SET end_time = NOW(), duration = :duration, updated_at = NOW()
                     WHERE id = :entry_id AND user_id = :user_id";
             
             $stmt = $this->db->prepare($sql);
@@ -163,11 +116,10 @@ class TimeTracking extends BaseModel {
      */
     public function getActiveTimer($userId) {
         try {
-            $sql = "SELECT te.*, t.title as task_title, p.name as project_name
+            $sql = "SELECT te.*, t.title as task_title
                     FROM time_entries te
                     LEFT JOIN tasks t ON te.task_id = t.id
-                    LEFT JOIN projects p ON te.project_id = p.id
-                    WHERE te.user_id = :user_id AND te.status = 'active'
+                    WHERE te.user_id = :user_id AND te.end_time IS NULL
                     ORDER BY te.start_time DESC
                     LIMIT 1";
             
@@ -209,25 +161,25 @@ class TimeTracking extends BaseModel {
         try {
             // Verify task exists and user has access
             $taskModel = new Task();
-            $task = $taskModel->getTaskById($data['task_id'], $data['user_id']);
-            if (!$task['success']) {
+            $task = $taskModel->findById($data['task_id']);
+            if (!$task) {
                 return [
                     'success' => false,
                     'message' => 'Task not found or access denied'
                 ];
             }
             
-            $sql = "INSERT INTO time_entries (user_id, task_id, project_id, description, duration, date, status, created_at) 
-                    VALUES (:user_id, :task_id, :project_id, :description, :duration, :date, 'completed', NOW())";
+            $sql = "INSERT INTO time_entries (user_id, task_id, description, duration, start_time, end_time, created_at) 
+                    VALUES (:user_id, :task_id, :description, :duration, :start_time, :end_time, NOW())";
             
             $stmt = $this->db->prepare($sql);
             $result = $stmt->execute([
                 ':user_id' => $data['user_id'],
                 ':task_id' => $data['task_id'],
-                ':project_id' => $data['project_id'] ?? $task['data']['project_id'],
                 ':description' => $data['description'],
                 ':duration' => $data['duration'],
-                ':date' => $data['date']
+                ':start_time' => $data['start_time'],
+                ':end_time' => $data['end_time']
             ]);
             
             if (!$result) {
@@ -261,18 +213,13 @@ class TimeTracking extends BaseModel {
             $params = [':user_id' => $userId];
             
             if (!empty($filters['startDate'])) {
-                $whereConditions[] = "DATE(COALESCE(te.date, te.created_at)) >= :start_date";
+                $whereConditions[] = "DATE(te.created_at) >= :start_date";
                 $params[':start_date'] = $filters['startDate'];
             }
             
             if (!empty($filters['endDate'])) {
-                $whereConditions[] = "DATE(COALESCE(te.date, te.created_at)) <= :end_date";
+                $whereConditions[] = "DATE(te.created_at) <= :end_date";
                 $params[':end_date'] = $filters['endDate'];
-            }
-            
-            if (!empty($filters['projectId'])) {
-                $whereConditions[] = "te.project_id = :project_id";
-                $params[':project_id'] = $filters['projectId'];
             }
             
             if (!empty($filters['taskId'])) {
@@ -280,23 +227,15 @@ class TimeTracking extends BaseModel {
                 $params[':task_id'] = $filters['taskId'];
             }
             
-            if (!empty($filters['status'])) {
-                $whereConditions[] = "te.status = :status";
-                $params[':status'] = $filters['status'];
-            }
-            
             $whereClause = implode(' AND ', $whereConditions);
             
             // Main query
             $sql = "SELECT te.*, 
-                           t.title as task_title,
-                           p.name as project_name,
-                           p.color as project_color
+                           t.title as task_title
                     FROM time_entries te
                     LEFT JOIN tasks t ON te.task_id = t.id
-                    LEFT JOIN projects p ON te.project_id = p.id
                     WHERE $whereClause
-                    ORDER BY COALESCE(te.date, te.created_at) DESC, te.created_at DESC
+                    ORDER BY te.created_at DESC
                     LIMIT :limit OFFSET :offset";
             
             $stmt = $this->db->prepare($sql);
@@ -325,11 +264,6 @@ class TimeTracking extends BaseModel {
                     'id' => $entry['task_id'],
                     'title' => $entry['task_title']
                 ];
-                $entry['project'] = $entry['project_id'] ? [
-                    'id' => $entry['project_id'],
-                    'name' => $entry['project_name'],
-                    'color' => $entry['project_color']
-                ] : null;
             }
             
             return [
@@ -359,12 +293,9 @@ class TimeTracking extends BaseModel {
     public function getTimeEntryById($entryId, $userId) {
         try {
             $sql = "SELECT te.*, 
-                           t.title as task_title,
-                           p.name as project_name,
-                           p.color as project_color
+                           t.title as task_title
                     FROM time_entries te
                     LEFT JOIN tasks t ON te.task_id = t.id
-                    LEFT JOIN projects p ON te.project_id = p.id
                     WHERE te.id = :entry_id AND te.user_id = :user_id";
             
             $stmt = $this->db->prepare($sql);
@@ -386,11 +317,6 @@ class TimeTracking extends BaseModel {
                 'id' => $entry['task_id'],
                 'title' => $entry['task_title']
             ];
-            $entry['project'] = $entry['project_id'] ? [
-                'id' => $entry['project_id'],
-                'name' => $entry['project_name'],
-                'color' => $entry['project_color']
-            ] : null;
             
             return [
                 'success' => true,
@@ -421,7 +347,7 @@ class TimeTracking extends BaseModel {
             }
             
             // Don't allow updating active timers
-            if ($entry['data']['status'] === 'active') {
+            if ($entry['data']['end_time'] === null) {
                 return [
                     'success' => false,
                     'message' => 'Cannot update active timer. Stop it first.',
@@ -432,7 +358,7 @@ class TimeTracking extends BaseModel {
             $updateFields = [];
             $params = [':entry_id' => $entryId, ':user_id' => $userId];
             
-            $allowedFields = ['duration', 'description', 'date'];
+            $allowedFields = ['duration', 'description'];
             
             foreach ($allowedFields as $field) {
                 if (array_key_exists($field, $data)) {
@@ -489,7 +415,7 @@ class TimeTracking extends BaseModel {
             }
             
             // Don't allow deleting active timers
-            if ($entry['data']['status'] === 'active') {
+            if ($entry['data']['end_time'] === null) {
                 return [
                     'success' => false,
                     'message' => 'Cannot delete active timer. Stop it first.',
@@ -517,39 +443,18 @@ class TimeTracking extends BaseModel {
     /**
      * Get time tracking statistics
      */
-    public function getTimeStats($userId, $startDate, $endDate, $groupBy = 'day') {
+    public function getTimeStats($userId, $startDate, $endDate) {
         try {
-            $groupByClause = '';
-            $selectClause = '';
-            
-            switch ($groupBy) {
-                case 'week':
-                    $groupByClause = "YEARWEEK(COALESCE(te.date, te.created_at))";
-                    $selectClause = "YEARWEEK(COALESCE(te.date, te.created_at)) as period, 
-                                   DATE(DATE_SUB(COALESCE(te.date, te.created_at), INTERVAL WEEKDAY(COALESCE(te.date, te.created_at)) DAY)) as period_start";
-                    break;
-                case 'month':
-                    $groupByClause = "DATE_FORMAT(COALESCE(te.date, te.created_at), '%Y-%m')";
-                    $selectClause = "DATE_FORMAT(COALESCE(te.date, te.created_at), '%Y-%m') as period,
-                                   DATE_FORMAT(COALESCE(te.date, te.created_at), '%Y-%m-01') as period_start";
-                    break;
-                default: // day
-                    $groupByClause = "DATE(COALESCE(te.date, te.created_at))";
-                    $selectClause = "DATE(COALESCE(te.date, te.created_at)) as period,
-                                   DATE(COALESCE(te.date, te.created_at)) as period_start";
-            }
-            
-            $sql = "SELECT $selectClause,
+            $sql = "SELECT DATE(te.created_at) as date,
                            SUM(te.duration) as total_seconds,
                            COUNT(*) as entries_count,
-                           COUNT(DISTINCT te.task_id) as unique_tasks,
-                           COUNT(DISTINCT te.project_id) as unique_projects
+                           COUNT(DISTINCT te.task_id) as unique_tasks
                     FROM time_entries te
                     WHERE te.user_id = :user_id 
-                    AND te.status IN ('completed', 'paused')
-                    AND DATE(COALESCE(te.date, te.created_at)) BETWEEN :start_date AND :end_date
-                    GROUP BY $groupByClause
-                    ORDER BY period_start ASC";
+                    AND te.duration IS NOT NULL
+                    AND DATE(te.created_at) BETWEEN :start_date AND :end_date
+                    GROUP BY DATE(te.created_at)
+                    ORDER BY date ASC";
             
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
@@ -563,12 +468,11 @@ class TimeTracking extends BaseModel {
             // Get overall totals
             $totalSql = "SELECT SUM(te.duration) as total_seconds,
                                COUNT(*) as total_entries,
-                               COUNT(DISTINCT te.task_id) as total_tasks,
-                               COUNT(DISTINCT te.project_id) as total_projects
+                               COUNT(DISTINCT te.task_id) as total_tasks
                         FROM time_entries te
                         WHERE te.user_id = :user_id 
-                        AND te.status IN ('completed', 'paused')
-                        AND DATE(COALESCE(te.date, te.created_at)) BETWEEN :start_date AND :end_date";
+                        AND te.duration IS NOT NULL
+                        AND DATE(te.created_at) BETWEEN :start_date AND :end_date";
             
             $totalStmt = $this->db->prepare($totalSql);
             $totalStmt->execute([
@@ -586,8 +490,7 @@ class TimeTracking extends BaseModel {
                     'totals' => $totals,
                     'period' => [
                         'start_date' => $startDate,
-                        'end_date' => $endDate,
-                        'group_by' => $groupBy
+                        'end_date' => $endDate
                     ]
                 ]
             ];
@@ -606,16 +509,16 @@ class TimeTracking extends BaseModel {
     public function getTotalTimeForUser($userId, $startDate = null, $endDate = null) {
         try {
             $sql = "SELECT SUM(duration) as total_seconds FROM time_entries 
-                    WHERE user_id = :user_id AND status IN ('completed', 'paused')";
+                    WHERE user_id = :user_id AND duration IS NOT NULL";
             $params = [':user_id' => $userId];
             
             if ($startDate) {
-                $sql .= " AND DATE(COALESCE(date, created_at)) >= :start_date";
+                $sql .= " AND DATE(created_at) >= :start_date";
                 $params[':start_date'] = $startDate;
             }
             
             if ($endDate) {
-                $sql .= " AND DATE(COALESCE(date, created_at)) <= :end_date";
+                $sql .= " AND DATE(created_at) <= :end_date";
                 $params[':end_date'] = $endDate;
             }
             
