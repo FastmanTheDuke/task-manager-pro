@@ -38,7 +38,8 @@ const TaskList = () => {
 
       if (result.success) {
         setTasks(result.data);
-        setPagination(result.pagination);
+        // If result.pagination is undefined, fallback to the default initial state.
+        setPagination(result.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
       } else {
         toast.error(result.message);
       }
