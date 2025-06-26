@@ -265,10 +265,19 @@ class Project extends BaseModel
     public function deleteProject(int $projectId, int $userId): array
     {
         try {
-            if (!$this->hasProjectPermission($projectId, $userId, ['owner'])) {
-                return ['success' => false, 'message' => 'Seul le propriétaire peut supprimer un projet.'];
+            // Récupérer le projet pour vérifier le propriétaire
+            $project = $this->findById($projectId);
+    
+            if (!$project) {
+                return ['success' => false, 'message' => 'Projet non trouvé.'];
+            }
+    
+            // CORRECTION : Vérifier si l'userId correspond à l'owner_id du projet
+            if ($project['owner_id'] != $userId) {
+                return ['success' => false, 'message' => 'Seul le propriétaire peut supprimer ce projet.'];
             }
             
+            // Si la vérification est passée, on procède à la suppression
             return $this->delete($projectId);
             
         } catch (Exception $e) {
