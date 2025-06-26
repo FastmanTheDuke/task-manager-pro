@@ -129,7 +129,7 @@ class Project extends BaseModel {
                                    NULLIF((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id), 0), 0) as completion_percentage
                     FROM projects p
                     LEFT JOIN project_members pm ON p.id = pm.project_id
-                    LEFT JOIN users u ON p.created_by = u.id
+                    LEFT JOIN users u ON p.owner_id = u.id
                     LEFT JOIN project_favorites pf ON p.id = pf.project_id AND pf.user_id = :user_id
                     WHERE $whereClause
                     ORDER BY $orderBy
@@ -201,7 +201,7 @@ class Project extends BaseModel {
                                    NULLIF((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id), 0), 0) as completion_percentage
                     FROM projects p
                     LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = :user_id
-                    LEFT JOIN users u ON p.created_by = u.id
+                    LEFT JOIN users u ON p.owner_id = u.id
                     LEFT JOIN project_favorites pf ON p.id = pf.project_id AND pf.user_id = :user_id
                     WHERE p.id = :project_id 
                     AND (pm.user_id = :user_id OR p.is_public = 1)";
