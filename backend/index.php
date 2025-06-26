@@ -571,15 +571,8 @@ function handleDashboard(): void
         try {
             $taskModel = new Task();
             
-            // Obtenir les statistiques des tâches
-            $totalTasks = $taskModel->count(['creator_id' => $userId]);
-            $completedTasks = $taskModel->count(['creator_id' => $userId, 'status' => 'completed']);
-            $pendingTasks = $taskModel->count(['creator_id' => $userId, 'status' => 'pending']);
-            $inProgressTasks = $taskModel->count(['creator_id' => $userId, 'status' => 'in_progress']);
-            
-            // Calculer les tâches en retard
-            $currentDate = date('Y-m-d');
-            $overdueTasks = $taskModel->countOverdue($userId, $currentDate);
+            // Obtenir les statistiques complètes des tâches
+            $stats = $taskModel->getStatistics($userId);
             
             // Obtenir les tâches récentes
             $recentTasks = $taskModel->getUserTasks($userId, [], [
@@ -588,19 +581,30 @@ function handleDashboard(): void
                 'order_dir' => 'DESC'
             ]);
             
-            // Mettre à jour les données
+            // Obtenir les échéances prochaines (tâches avec due_date dans les 7 prochains jours)
+            $upcomingDeadlines = $taskModel->getUserTasks($userId, [
+                'due_date_from' => date('Y-m-d'),
+                'due_date_to' => date('Y-m-d', strtotime('+7 days'))
+            ], [
+                'limit' => 5,
+                'order_by' => 'due_date',
+                'order_dir' => 'ASC'
+            ]);
+            
+            // Mettre à jour les données avec les vraies statistiques
             $dashboardData['stats'] = [
-                'totalTasks' => (int)$totalTasks,
-                'completedTasks' => (int)$completedTasks,
-                'pendingTasks' => (int)($pendingTasks + $inProgressTasks),
-                'overdueTasks' => (int)$overdueTasks,
+                'totalTasks' => (int)($stats['total_tasks'] ?? 0),
+                'completedTasks' => (int)($stats['completed_tasks'] ?? 0),
+                'pendingTasks' => (int)(($stats['pending_tasks'] ?? 0) + ($stats['in_progress_tasks'] ?? 0)),
+                'overdueTasks' => (int)($stats['overdue_tasks'] ?? 0),
                 'totalProjects' => 0, // À implémenter quand le modèle Project sera disponible
                 'activeProjects' => 0,
                 'totalTimeTracked' => 0, // À implémenter
-                'tasksCompletedThisWeek' => (int)$completedTasks // Approximation
+                'tasksCompletedThisWeek' => (int)($stats['completed_tasks'] ?? 0) // Approximation
             ];
             
             $dashboardData['recentTasks'] = is_array($recentTasks) ? $recentTasks : [];
+            $dashboardData['upcomingDeadlines'] = is_array($upcomingDeadlines) ? $upcomingDeadlines : [];
             
         } catch (\Exception $e) {
             error_log('Dashboard stats error: ' . $e->getMessage());
