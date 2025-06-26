@@ -32,7 +32,8 @@ class Project extends BaseModel
                 'priority' => $data['priority'] ?? 'medium',
                 'end_date' => $data['due_date'] ?? null,
                 'color' => $data['color'] ?? '#3B82F6',
-                'is_public' => (isset($data['is_public']) && $data['is_public']) ? 1 : 0,
+                // CORRECTION: Par défaut, les projets ne sont pas publics
+                'is_public' => 0, // Toujours 0 par défaut, seuls les membres peuvent voir
                 'owner_id' => $userId
             ];
 
@@ -60,7 +61,8 @@ class Project extends BaseModel
         try {
             $offset = ($page - 1) * $limit;
             
-            $whereConditions = ["(pm.user_id = :user_id OR p.is_public = 1)"];
+            // CORRECTION: Seuls les projets où l'utilisateur est membre sont visibles
+            $whereConditions = ["pm.user_id = :user_id"];
             $params = [':user_id' => $userId];
 
             if (!empty($filters['search'])) {
@@ -94,7 +96,7 @@ class Project extends BaseModel
             }
             $orderByClause = "$sortBy $sortOrder";
             
-            // ** CORRECTION SQL : Retrait de la jointure sur project_favorites **
+            // CORRECTION SQL : Jointure INNER pour s'assurer que seuls les membres voient les projets
             $sql = "SELECT DISTINCT p.*, 
                            pm.role as user_role,
                            u.username as owner_username,
@@ -104,7 +106,7 @@ class Project extends BaseModel
                            COALESCE((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') * 100.0 / 
                                    NULLIF((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id), 0), 0) as completion_percentage
                     FROM projects p
-                    LEFT JOIN project_members pm ON p.id = pm.project_id
+                    INNER JOIN project_members pm ON p.id = pm.project_id
                     LEFT JOIN users u ON p.owner_id = u.id
                     WHERE $whereClause
                     ORDER BY $orderByClause
@@ -120,7 +122,7 @@ class Project extends BaseModel
             $stmt->execute();
             $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-            $countSql = "SELECT COUNT(DISTINCT p.id) FROM projects p LEFT JOIN project_members pm ON p.id = pm.project_id WHERE $whereClause";
+            $countSql = "SELECT COUNT(DISTINCT p.id) FROM projects p INNER JOIN project_members pm ON p.id = pm.project_id WHERE $whereClause";
             $countStmt = $this->db->prepare($countSql);
             $countStmt->execute($params);
             $total = $countStmt->fetchColumn();
@@ -152,7 +154,7 @@ class Project extends BaseModel
     public function getProjectById(int $projectId, int $userId): array
     {
         try {
-            // ** CORRECTION SQL : Retrait de la jointure sur project_favorites **
+            // CORRECTION SQL : Vérifier que l'utilisateur est membre du projet
             $sql = "SELECT p.*, 
                            pm.role as user_role,
                            u.username as owner_username,
@@ -162,10 +164,9 @@ class Project extends BaseModel
                            COALESCE((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') * 100.0 / 
                                    NULLIF((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id), 0), 0) as completion_percentage
                     FROM projects p
-                    LEFT JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = :user_id
+                    INNER JOIN project_members pm ON p.id = pm.project_id AND pm.user_id = :user_id
                     LEFT JOIN users u ON p.owner_id = u.id
-                    WHERE p.id = :project_id 
-                    AND (pm.user_id = :user_id OR p.is_public = 1)";
+                    WHERE p.id = :project_id";
             
             $stmt = $this->db->prepare($sql);
             $stmt->execute([':project_id' => $projectId, ':user_id' => $userId]);
@@ -189,7 +190,7 @@ class Project extends BaseModel
 
     /**
      * Récupère les projets récents pour un utilisateur donné
-     * NOUVELLE MÉTHODE pour corriger l'erreur "Call to undefined method"
+     * CORRECTION: Seuls les projets où l'utilisateur est membre
      */
     public function getRecentProjects(int $userId, int $limit = 5): array
     {
@@ -203,9 +204,9 @@ class Project extends BaseModel
                            COALESCE((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') * 100.0 / 
                                    NULLIF((SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id), 0), 0) as completion_percentage
                     FROM projects p
-                    LEFT JOIN project_members pm ON p.id = pm.project_id
+                    INNER JOIN project_members pm ON p.id = pm.project_id
                     LEFT JOIN users u ON p.owner_id = u.id
-                    WHERE (pm.user_id = :user_id OR p.is_public = 1)
+                    WHERE pm.user_id = :user_id
                     AND p.status != 'archived'
                     ORDER BY p.updated_at DESC
                     LIMIT :limit";
@@ -302,6 +303,79 @@ class Project extends BaseModel
         }
     }
 
+    /**
+     * NOUVELLE MÉTHODE: Ajouter un membre à un projet avec validation des permissions
+     */
+    public function addMemberToProject(int $projectId, int $newUserId, string $role, int $currentUserId): array
+    {
+        try {
+            // Vérifier que l'utilisateur actuel a les permissions pour ajouter des membres
+            if (!$this->hasProjectPermission($projectId, $currentUserId, ['owner', 'admin'])) {
+                return ['success' => false, 'message' => 'Permissions insuffisantes pour ajouter des membres.'];
+            }
+
+            // Vérifier que l'utilisateur à ajouter existe
+            $userModel = new \TaskManager\Models\User();
+            $user = $userModel->findById($newUserId);
+            if (!$user) {
+                return ['success' => false, 'message' => 'Utilisateur non trouvé.'];
+            }
+
+            // Ajouter le membre
+            $success = $this->addMember($projectId, $newUserId, $role);
+            
+            if ($success) {
+                return [
+                    'success' => true, 
+                    'message' => 'Membre ajouté avec succès au projet.',
+                    'data' => [
+                        'user' => $user,
+                        'role' => $role
+                    ]
+                ];
+            } else {
+                return ['success' => false, 'message' => 'Erreur lors de l\'ajout du membre.'];
+            }
+
+        } catch (Exception $e) {
+            error_log("Error adding member to project: " . $e->getMessage());
+            return ['success' => false, 'message' => 'Erreur lors de l\'ajout du membre.'];
+        }
+    }
+
+    /**
+     * NOUVELLE MÉTHODE: Retirer un membre d'un projet
+     */
+    public function removeMemberFromProject(int $projectId, int $memberUserId, int $currentUserId): array
+    {
+        try {
+            // Vérifier que l'utilisateur actuel a les permissions
+            if (!$this->hasProjectPermission($projectId, $currentUserId, ['owner', 'admin'])) {
+                return ['success' => false, 'message' => 'Permissions insuffisantes pour retirer des membres.'];
+            }
+
+            // Ne pas permettre au propriétaire de se retirer lui-même
+            $project = $this->findById($projectId);
+            if ($project['owner_id'] == $memberUserId) {
+                return ['success' => false, 'message' => 'Le propriétaire ne peut pas être retiré du projet.'];
+            }
+
+            $sql = "DELETE FROM project_members WHERE project_id = ? AND user_id = ?";
+            $stmt = $this->db->prepare($sql);
+            $success = $stmt->execute([$projectId, $memberUserId]);
+
+            if ($success && $stmt->rowCount() > 0) {
+                return ['success' => true, 'message' => 'Membre retiré du projet avec succès.'];
+            } else {
+                return ['success' => false, 'message' => 'Membre non trouvé dans ce projet.'];
+            }
+
+        } catch (Exception $e) {
+            error_log("Error removing member from project: " . $e->getMessage());
+            return ['success' => false, 'message' => 'Erreur lors du retrait du membre.'];
+        }
+    }
+
     public function getProjectMembers(int $projectId): array
     {
         try {
@@ -347,14 +421,15 @@ class Project extends BaseModel
     public function getProjectStats(int $userId): array
     {
         try {
+            // CORRECTION: Seuls les projets où l'utilisateur est membre
             $sql = "SELECT 
                         COUNT(DISTINCT p.id) as total,
                         SUM(CASE WHEN p.status = 'active' THEN 1 ELSE 0 END) as active,
                         SUM(CASE WHEN p.status = 'completed' THEN 1 ELSE 0 END) as completed,
                         SUM(CASE WHEN p.end_date < CURDATE() AND p.status != 'completed' THEN 1 ELSE 0 END) as overdue
                     FROM projects p
-                    LEFT JOIN project_members pm ON p.id = pm.project_id
-                    WHERE (pm.user_id = ? OR p.is_public = 1)
+                    INNER JOIN project_members pm ON p.id = pm.project_id
+                    WHERE pm.user_id = ?
                     AND p.status != 'archived'";
             
             $stmt = $this->db->prepare($sql);
