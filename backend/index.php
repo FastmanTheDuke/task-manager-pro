@@ -174,6 +174,11 @@ try {
             handleGetProject($matches[1]);
             break;
             
+        case preg_match('#^/api/projects/(\\d+)$#', $path, $matches) && $requestMethod === 'PUT':
+            AuthMiddleware::handle();
+            handleUpdateProject($matches[1]);
+            break;
+            
         case preg_match('#^/api/projects/(\\d+)$#', $path, $matches) && $requestMethod === 'DELETE':
             AuthMiddleware::handle();
             handleDeleteProject($matches[1]);
@@ -231,6 +236,13 @@ try {
             AuthMiddleware::handle();
             handleUpdateProfile();
             break;
+            
+        // NOUVELLE ROUTE : Recherche d'utilisateurs
+        case $path === '/api/users/search' && $requestMethod === 'GET':
+            AuthMiddleware::handle();
+            require_once __DIR__ . '/api/users/search.php';
+            break;
+            
         // --- Admin User Management Routes ---
         case $path === '/api/users' && $requestMethod === 'GET':
             AuthMiddleware::handle();
@@ -290,9 +302,11 @@ try {
                         'POST /api/tasks - Create task',
                         'GET /api/projects - List projects',
                         'POST /api/projects - Create project',
+                        'PUT /api/projects/{id} - Update project',
                         'GET /api/projects/{id}/members - List project members',
                         'POST /api/projects/{id}/members - Add project member',
-                        'DELETE /api/projects/{id}/members/{userId} - Remove project member'
+                        'DELETE /api/projects/{id}/members/{userId} - Remove project member',
+                        'GET /api/users/search - Search users for adding to projects'
                     ],
                     'tip' => 'Make sure your requests are going to the correct backend endpoint'
                 ]
@@ -373,6 +387,7 @@ function handleApiInfo(): void
                 'list' => 'GET /api/projects - Liste des projets',
                 'create' => 'POST /api/projects - Créer un projet',
                 'get' => 'GET /api/projects/{id} - Détails d\'un projet',
+                'update' => 'PUT /api/projects/{id} - Modifier un projet',
                 'delete' => 'DELETE /api/projects/{id} - Supprimer un projet',
                 'members' => [
                     'list' => 'GET /api/projects/{id}/members - Lister les membres du projet',
@@ -382,7 +397,8 @@ function handleApiInfo(): void
             ],
             'users' => [
                 'profile' => 'GET /api/users/profile - Profil utilisateur',
-                'update_profile' => 'PUT /api/users/profile - Modifier le profil'
+                'update_profile' => 'PUT /api/users/profile - Modifier le profil',
+                'search' => 'GET /api/users/search?q=terme - Rechercher des utilisateurs'
             ],
             'debug' => 'GET|POST /api/debug - Informations de débogage'
         ],
@@ -607,7 +623,7 @@ function handleTokenRefresh(): void
 {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     
-    if (!preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
+    if (!preg_match('/Bearer\\s+(.*)$/i', $authHeader, $matches)) {
         ResponseService::error('Token manquant', 401);
     }
     
@@ -908,7 +924,8 @@ function handleCreateProject(): void
         'priority' => 'in:low,medium,high,urgent',
         'due_date' => 'date',
         'color' => 'max:7',
-        'is_public' => 'boolean'
+        'is_public' => 'boolean',
+        'members' => 'array'
     ];
     
     $data = ValidationMiddleware::validate($rules);
@@ -936,6 +953,32 @@ function handleGetProject(int $projectId): void
     }
     
     ResponseService::success($result['data']);
+}
+
+function handleUpdateProject(int $projectId): void
+{
+    $rules = [
+        'name' => 'max:200',
+        'description' => 'max:1000',
+        'status' => 'in:planning,active,completed,on_hold,cancelled',
+        'priority' => 'in:low,medium,high,urgent',
+        'due_date' => 'date',
+        'color' => 'max:7',
+        'is_public' => 'boolean',
+        'members' => 'array'
+    ];
+    
+    $data = ValidationMiddleware::validate($rules);
+    $userId = AuthMiddleware::getCurrentUserId();
+    
+    $projectModel = new Project();
+    $result = $projectModel->updateProject($projectId, $data, $userId);
+    
+    if (!$result['success']) {
+        ResponseService::error($result['message'] ?? 'Erreur lors de la mise à jour', 400);
+    }
+    
+    ResponseService::success($result['data'], 'Projet mis à jour avec succès');
 }
 
 function handleDeleteProject(int $projectId): void
