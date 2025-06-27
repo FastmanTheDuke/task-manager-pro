@@ -1,0 +1,33 @@
+{
+  "name": "task-manager-pro-websocket",
+  "version": "1.0.0",
+  "description": "WebSocket server for TaskManager Pro collaborative features",
+  "main": "websocket-server.js",
+  "scripts": {
+    "start": "node websocket-server.js",
+    "dev": "nodemon websocket-server.js",
+    "test": "node test_websocket_connection.js",
+    "install-deps": "npm install ws nodemon"
+  },
+  "keywords": [
+    "websocket",
+    "task-manager",
+    "collaboration",
+    "real-time"
+  ],
+  "author": "FastmanTheDuke",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FastmanTheDuke/task-manager-pro.git"
+  }
+}
