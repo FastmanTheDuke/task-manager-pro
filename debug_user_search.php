@@ -8,6 +8,12 @@ require_once __DIR__ . '/backend/Bootstrap.php';
 
 use TaskManager\Bootstrap;
 use TaskManager\Models\User;
+use TaskManager\Database\Connection;
+
+// Vérifier qu'on est bien en CLI
+if (php_sapi_name() !== 'cli') {
+    die("Ce script doit être exécuté en ligne de commande uniquement.\n");
+}
 
 // Initialiser l'application
 Bootstrap::init();
@@ -68,8 +74,8 @@ try {
     echo "3. RECHERCHE DÉTAILLÉE POUR 'jess':\n";
     echo "------------------------------------\n";
     
-    // Recherche directe en base
-    $db = Bootstrap::getDatabase();
+    // Recherche directe en base en utilisant Connection::getInstance()
+    $db = Connection::getInstance();
     $sql = "SELECT id, username, email, first_name, last_name, status 
             FROM users 
             WHERE (
@@ -109,14 +115,30 @@ try {
     
     echo "Colonnes de la table users:\n";
     foreach ($columns as $column) {
-        echo "- {$column['Field']} ({$column['Type']}) - NULL: {$column['Null']}, Default: {$column['Default']}\n";
+        $default = $column['Default'] ?? 'NULL';
+        echo "- {$column['Field']} ({$column['Type']}) - NULL: {$column['Null']}, Default: {$default}\n";
     }
     
     echo "\n";
     
-    // 5. Tester la création d'un utilisateur de test
-    echo "5. CRÉATION D'UN UTILISATEUR DE TEST:\n";
-    echo "-------------------------------------\n";
+    // 5. Test de recherche avancée
+    echo "5. TEST DE RECHERCHE AVANCÉE:\n";
+    echo "------------------------------\n";
+    
+    // Test avec différentes casses
+    $searchCases = ['JESS', 'Jess', 'jess', 'JeSs'];
+    
+    foreach ($searchCases as $searchCase) {
+        echo "🔍 Test de casse pour '{$searchCase}':\n";
+        $results = $userModel->searchUsers($searchCase);
+        echo "   Résultats: " . count($results) . "\n";
+    }
+    
+    echo "\n";
+    
+    // 6. Tester la création d'un utilisateur de test si nécessaire
+    echo "6. CRÉATION D'UN UTILISATEUR DE TEST (si nécessaire):\n";
+    echo "-----------------------------------------------------\n";
     
     $testUserData = [
         'username' => 'jesstest',
@@ -130,7 +152,17 @@ try {
     $existingUser = $userModel->findByUsername('jesstest');
     if ($existingUser) {
         echo "ℹ️  L'utilisateur de test 'jesstest' existe déjà\n";
+        
+        // Tester la recherche sur cet utilisateur
+        echo "🔍 Test de recherche sur l'utilisateur existant:\n";
+        $searchResults = $userModel->searchUsers('jess');
+        echo "   Résultats pour 'jess': " . count($searchResults) . " trouvé(s)\n";
+        
+        foreach ($searchResults as $user) {
+            echo "   - Username: '{$user['username']}', Email: '{$user['email']}', Nom: '{$user['first_name']} {$user['last_name']}'\n";
+        }
     } else {
+        echo "🔧 Création de l'utilisateur de test...\n";
         $result = $userModel->createUser($testUserData);
         if ($result['success']) {
             echo "✅ Utilisateur de test 'jesstest' créé avec succès\n";
@@ -141,16 +173,44 @@ try {
             echo "   Résultats pour 'jess': " . count($searchResults) . " trouvé(s)\n";
             
             foreach ($searchResults as $user) {
-                echo "   - Username: '{$user['username']}', Email: '{$user['email']}'\n";
+                echo "   - Username: '{$user['username']}', Email: '{$user['email']}', Nom: '{$user['first_name']} {$user['last_name']}'\n";
             }
         } else {
             echo "❌ Erreur lors de la création de l'utilisateur de test: " . $result['message'] . "\n";
         }
     }
     
+    echo "\n";
+    
+    // 7. Test de l'endpoint API (simulation)
+    echo "7. SIMULATION DE L'ENDPOINT API:\n";
+    echo "---------------------------------\n";
+    
+    echo "🔍 Simulation de l'appel: GET /api/users/search?q=jess\n";
+    $apiResults = $userModel->searchUsers('jess', 1); // Exclure l'utilisateur ID 1 (admin)
+    echo "   Résultats API: " . count($apiResults) . " utilisateur(s)\n";
+    
+    if (!empty($apiResults)) {
+        echo "   JSON simulé:\n";
+        $response = [
+            'success' => true,
+            'data' => $apiResults,
+            'message' => 'Utilisateurs trouvés'
+        ];
+        echo "   " . json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . "\n";
+    } else {
+        echo "   ❌ Aucun résultat - vérifiez que des utilisateurs avec 'jess' existent et sont actifs\n";
+    }
+    
     echo "\n=== FIN DU DEBUG ===\n";
+    echo "\n📋 RÉSUMÉ:\n";
+    echo "- Total utilisateurs actifs: " . count($allUsers) . "\n";
+    echo "- Recherche 'jess' fonctionne: " . (count($userModel->searchUsers('jess')) > 0 ? '✅ OUI' : '❌ NON') . "\n";
+    echo "- Endpoint API simule: " . (count($apiResults) > 0 ? '✅ RÉSULTATS' : '❌ VIDE') . "\n";
     
 } catch (Exception $e) {
     echo "❌ ERREUR: " . $e->getMessage() . "\n";
+    echo "Fichier: " . $e->getFile() . "\n";
+    echo "Ligne: " . $e->getLine() . "\n";
     echo "Trace: " . $e->getTraceAsString() . "\n";
 }
