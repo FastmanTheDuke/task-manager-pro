@@ -23,9 +23,17 @@ class ValidationService {
                     $fieldRules = [$fieldRules];
                 }
                 
+                // Check if field is nullable
+                $isNullable = in_array('nullable', $fieldRules);
+                
+                // If field is nullable and empty, skip other validations
+                if ($isNullable && self::isEmpty($value)) {
+                    continue;
+                }
+                
                 foreach ($fieldRules as $rule) {
-                    if (empty($rule)) continue;
-                    self::applyRule($field, $value, $rule, $data);
+                    if (empty($rule) || $rule === 'nullable') continue;
+                    self::applyRule($field, $value, $rule, $data, $isNullable);
                 }
             }
             
@@ -55,7 +63,7 @@ class ValidationService {
     /**
      * Apply a single validation rule
      */
-    private static function applyRule($field, $value, $rule, $allData) {
+    private static function applyRule($field, $value, $rule, $allData, $isNullable = false) {
         try {
             $parameters = [];
             
@@ -66,6 +74,11 @@ class ValidationService {
             }
             
             $rule = trim($rule);
+            
+            // Si le champ est nullable et vide, ne pas valider sauf pour required
+            if ($isNullable && self::isEmpty($value) && $rule !== 'required') {
+                return;
+            }
             
             switch ($rule) {
                 case 'required':
@@ -132,8 +145,10 @@ class ValidationService {
                     break;
                     
                 case 'date':
-                    if (!self::isEmpty($value) && !strtotime($value)) {
-                        self::addError($field, 'Date invalide');
+                    if (!self::isEmpty($value)) {
+                        if (!self::isValidDate($value)) {
+                            self::addError($field, 'Date invalide');
+                        }
                     }
                     break;
                     
@@ -157,9 +172,14 @@ class ValidationService {
                     break;
                     
                 case 'boolean':
-                    if (!self::isEmpty($value) && !is_bool($value)) {
+                    // Validation améliorée pour les booléens après preprocessing
+                    if (!self::isEmpty($value) && !self::isValidBoolean($value)) {
                         self::addError($field, 'Doit être un booléen');
                     }
+                    break;
+                    
+                case 'nullable':
+                    // Cette règle est gérée en amont, ne rien faire ici
                     break;
                     
                 default:
@@ -190,6 +210,59 @@ class ValidationService {
         }
         
         return false;
+    }
+    
+    /**
+     * Validate boolean value (including after preprocessing)
+     */
+    private static function isValidBoolean($value) {
+        // Après preprocessing, on devrait avoir un vrai booléen
+        if (is_bool($value)) {
+            return true;
+        }
+        
+        // Mais on accepte aussi les valeurs qui peuvent être converties
+        if (is_string($value)) {
+            $lowValue = strtolower($value);
+            return in_array($lowValue, ['true', 'false', '1', '0', 'yes', 'no', 'on', 'off']);
+        }
+        
+        if (is_numeric($value)) {
+            return in_array($value, [0, 1]);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Validate date value with better parsing
+     */
+    private static function isValidDate($value) {
+        if (empty($value) || $value === null) {
+            return false;
+        }
+        
+        // Try different date formats
+        $formats = [
+            'Y-m-d',          // 2024-12-31
+            'Y-m-d H:i:s',    // 2024-12-31 23:59:59
+            'Y/m/d',          // 2024/12/31
+            'd/m/Y',          // 31/12/2024
+            'd-m-Y',          // 31-12-2024
+            'Y-m-d\TH:i:s',   // ISO format
+            'Y-m-d\TH:i:s\Z', // ISO with Z
+        ];
+        
+        foreach ($formats as $format) {
+            $date = \DateTime::createFromFormat($format, $value);
+            if ($date && $date->format($format) === $value) {
+                return true;
+            }
+        }
+        
+        // Fallback: try strtotime
+        $timestamp = strtotime($value);
+        return $timestamp !== false && $timestamp !== -1;
     }
     
     /**
@@ -294,5 +367,25 @@ class ValidationService {
         }
         
         return $errors;
+    }
+    
+    /**
+     * Helper method to check if a field has a specific rule
+     */
+    public static function hasRule($rules, $ruleName) {
+        if (is_string($rules)) {
+            $rules = explode('|', $rules);
+        }
+        
+        foreach ($rules as $rule) {
+            if (strpos($rule, ':') !== false) {
+                list($rule, $params) = explode(':', $rule, 2);
+            }
+            if (trim($rule) === $ruleName) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }
