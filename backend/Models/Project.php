@@ -9,13 +9,16 @@ class Project extends BaseModel
 {
     protected string $table = 'projects';
 
+    // Champs correspondant EXACTEMENT à la structure DB
     protected array $fillable = [
         'name',
         'description',
+        'color',
+        'icon',
         'status',
         'priority',
+        'start_date',
         'end_date',
-        'color',
         'is_public',
         'owner_id'
     ];
@@ -25,17 +28,21 @@ class Project extends BaseModel
         try {
             $this->db->beginTransaction();
 
+            // Correspondance EXACTE avec la structure DB
             $projectData = [
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
-                'status' => $data['status'] ?? 'active',
-                'priority' => $data['priority'] ?? 'medium',
-                'end_date' => $data['due_date'] ?? null,
-                'color' => $data['color'] ?? '#3B82F6',
-                // CORRECTION: Par défaut, les projets ne sont pas publics
-                'is_public' => 0, // Toujours 0 par défaut, seuls les membres peuvent voir
-                'owner_id' => $userId
+                'color' => $data['color'] ?? '#4361ee',      // Valeur par défaut DB
+                'icon' => $data['icon'] ?? 'folder',         // Valeur par défaut DB
+                'status' => $data['status'] ?? 'active',     // Valeur par défaut DB
+                'priority' => $data['priority'] ?? 'medium', // Valeur par défaut DB
+                'start_date' => $data['start_date'] ?? null,
+                'end_date' => $data['end_date'] ?? null,     // Plus de conversion depuis due_date!
+                'is_public' => isset($data['is_public']) ? (int)$data['is_public'] : 0,
+                'owner_id' => $userId  // Correspond à la DB
             ];
+
+            error_log("Project Model - Creating with data: " . json_encode($projectData));
 
             $result = $this->create($projectData);
 
@@ -52,7 +59,7 @@ class Project extends BaseModel
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("Error creating project: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Erreur lors de la création du projet.'];
+            return ['success' => false, 'message' => 'Erreur lors de la création du projet: ' . $e->getMessage()];
         }
     }
     
@@ -80,11 +87,11 @@ class Project extends BaseModel
 
             $whereClause = implode(' AND ', $whereConditions);
 
-            // Correction pour le tri
+            // Correction pour le tri avec les vrais noms de champs
             $sortBy = 'p.updated_at';
             if (!empty($filters['sortBy'])) {
                 $validSorts = ['name', 'created_at', 'updated_at', 'end_date', 'completion_percentage'];
-                $sortField = $filters['sortBy'] === 'due_date' ? 'end_date' : $filters['sortBy'];
+                $sortField = $filters['sortBy'];
                 if (in_array($sortField, $validSorts)) {
                     $sortBy = "p.$sortField";
                 }
@@ -96,7 +103,7 @@ class Project extends BaseModel
             }
             $orderByClause = "$sortBy $sortOrder";
             
-            // CORRECTION SQL : Jointure INNER pour s'assurer que seuls les membres voient les projets
+            // SQL avec les vrais noms de champs
             $sql = "SELECT DISTINCT p.*, 
                            pm.role as user_role,
                            u.username as owner_username,
@@ -133,21 +140,18 @@ class Project extends BaseModel
 
             return [
                 'success' => true,
-                'data' => [
-                    'projects' => $projects,
-                    'pagination' => [
-                        'page' => $page,
-                        'limit' => $limit,
-                        'total' => (int)$total,
-                        'pages' => ceil($total / $limit)
-                    ],
-                    'stats' => $this->getProjectStats($userId)
+                'data' => $projects,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => (int)$total,
+                    'pages' => ceil($total / $limit)
                 ]
             ];
             
         } catch (Exception $e) {
             error_log("Error fetching projects: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Erreur serveur lors de la récupération des projets.'];
+            return ['success' => false, 'message' => 'Erreur serveur lors de la récupération des projets: ' . $e->getMessage()];
         }
     }
 
@@ -184,19 +188,18 @@ class Project extends BaseModel
             
         } catch (Exception $e) {
             error_log("Error fetching project by ID: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Erreur lors de la récupération du projet.'];
+            return ['success' => false, 'message' => 'Erreur lors de la récupération du projet: ' . $e->getMessage()];
         }
     }
 
     /**
      * Récupère les projets récents pour un utilisateur donné
-     * CORRECTION: Seuls les projets où l'utilisateur est membre
      */
     public function getRecentProjects(int $userId, int $limit = 5): array
     {
         try {
             $sql = "SELECT DISTINCT p.id, p.name, p.description, p.status, p.priority, 
-                           p.color, p.created_at, p.updated_at, p.end_date,
+                           p.color, p.icon, p.created_at, p.updated_at, p.end_date,
                            pm.role as user_role,
                            u.username as owner_username,
                            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as tasks_total,
@@ -250,16 +253,14 @@ class Project extends BaseModel
                 return ['success' => false, 'message' => 'Permissions insuffisantes pour mettre à jour ce projet.'];
             }
             
-            if (isset($data['due_date'])) {
-                $data['end_date'] = $data['due_date'];
-                unset($data['due_date']);
-            }
+            // Plus de conversion due_date → end_date, on garde les données telles quelles
+            error_log("Project Model - Updating with data: " . json_encode($data));
 
             return $this->update($projectId, $data);
             
         } catch (Exception $e) {
             error_log("Error updating project: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Erreur lors de la mise à jour du projet.'];
+            return ['success' => false, 'message' => 'Erreur lors de la mise à jour du projet: ' . $e->getMessage()];
         }
     }
 
@@ -273,17 +274,16 @@ class Project extends BaseModel
                 return ['success' => false, 'message' => 'Projet non trouvé.'];
             }
     
-            // CORRECTION : Vérifier si l'userId correspond à l'owner_id du projet
+            // Vérifier si l'userId correspond à l'owner_id du projet
             if ($project['owner_id'] != $userId) {
                 return ['success' => false, 'message' => 'Seul le propriétaire peut supprimer ce projet.'];
             }
             
-            // Si la vérification est passée, on procède à la suppression
             return $this->delete($projectId);
             
         } catch (Exception $e) {
             error_log("Error deleting project: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Erreur lors de la suppression du projet.'];
+            return ['success' => false, 'message' => 'Erreur lors de la suppression du projet: ' . $e->getMessage()];
         }
     }
 
@@ -303,76 +303,32 @@ class Project extends BaseModel
         }
     }
 
-    /**
-     * NOUVELLE MÉTHODE: Ajouter un membre à un projet avec validation des permissions
-     */
-    public function addMemberToProject(int $projectId, int $newUserId, string $role, int $currentUserId): array
+    public function removeMember(int $projectId, int $userId): bool
     {
         try {
-            // Vérifier que l'utilisateur actuel a les permissions pour ajouter des membres
-            if (!$this->hasProjectPermission($projectId, $currentUserId, ['owner', 'admin'])) {
-                return ['success' => false, 'message' => 'Permissions insuffisantes pour ajouter des membres.'];
-            }
-
-            // Vérifier que l'utilisateur à ajouter existe
-            $userModel = new \TaskManager\Models\User();
-            $user = $userModel->findById($newUserId);
-            if (!$user) {
-                return ['success' => false, 'message' => 'Utilisateur non trouvé.'];
-            }
-
-            // Ajouter le membre
-            $success = $this->addMember($projectId, $newUserId, $role);
+            $sql = "DELETE FROM project_members WHERE project_id = ? AND user_id = ?";
+            $stmt = $this->db->prepare($sql);
+            return $stmt->execute([$projectId, $userId]);
             
-            if ($success) {
-                return [
-                    'success' => true, 
-                    'message' => 'Membre ajouté avec succès au projet.',
-                    'data' => [
-                        'user' => $user,
-                        'role' => $role
-                    ]
-                ];
-            } else {
-                return ['success' => false, 'message' => 'Erreur lors de l\'ajout du membre.'];
-            }
-
         } catch (Exception $e) {
-            error_log("Error adding member to project: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Erreur lors de l\'ajout du membre.'];
+            error_log("Error removing member from project: " . $e->getMessage());
+            return false;
         }
     }
 
-    /**
-     * NOUVELLE MÉTHODE: Retirer un membre d'un projet
-     */
-    public function removeMemberFromProject(int $projectId, int $memberUserId, int $currentUserId): array
+    public function removeAllMembers(int $projectId): bool
     {
         try {
-            // Vérifier que l'utilisateur actuel a les permissions
-            if (!$this->hasProjectPermission($projectId, $currentUserId, ['owner', 'admin'])) {
-                return ['success' => false, 'message' => 'Permissions insuffisantes pour retirer des membres.'];
-            }
-
-            // Ne pas permettre au propriétaire de se retirer lui-même
-            $project = $this->findById($projectId);
-            if ($project['owner_id'] == $memberUserId) {
-                return ['success' => false, 'message' => 'Le propriétaire ne peut pas être retiré du projet.'];
-            }
-
-            $sql = "DELETE FROM project_members WHERE project_id = ? AND user_id = ?";
+            // Ne pas supprimer le propriétaire
+            $sql = "DELETE pm FROM project_members pm 
+                    INNER JOIN projects p ON pm.project_id = p.id 
+                    WHERE pm.project_id = ? AND pm.user_id != p.owner_id";
             $stmt = $this->db->prepare($sql);
-            $success = $stmt->execute([$projectId, $memberUserId]);
-
-            if ($success && $stmt->rowCount() > 0) {
-                return ['success' => true, 'message' => 'Membre retiré du projet avec succès.'];
-            } else {
-                return ['success' => false, 'message' => 'Membre non trouvé dans ce projet.'];
-            }
-
+            return $stmt->execute([$projectId]);
+            
         } catch (Exception $e) {
-            error_log("Error removing member from project: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Erreur lors du retrait du membre.'];
+            error_log("Error removing all members: " . $e->getMessage());
+            return false;
         }
     }
 
@@ -421,7 +377,6 @@ class Project extends BaseModel
     public function getProjectStats(int $userId): array
     {
         try {
-            // CORRECTION: Seuls les projets où l'utilisateur est membre
             $sql = "SELECT 
                         COUNT(DISTINCT p.id) as total,
                         SUM(CASE WHEN p.status = 'active' THEN 1 ELSE 0 END) as active,
@@ -460,6 +415,72 @@ class Project extends BaseModel
         } catch (Exception $e) {
             error_log("Error getting recent project tasks: " . $e->getMessage());
             return [];
+        }
+    }
+
+    public function toggleFavorite(int $projectId, int $userId): array
+    {
+        try {
+            // Vérifier si le projet est déjà en favori
+            $sql = "SELECT COUNT(*) FROM project_favorites WHERE project_id = ? AND user_id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$projectId, $userId]);
+            $isFavorite = $stmt->fetchColumn() > 0;
+
+            if ($isFavorite) {
+                // Retirer des favoris
+                $sql = "DELETE FROM project_favorites WHERE project_id = ? AND user_id = ?";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([$projectId, $userId]);
+                $message = 'Projet retiré des favoris';
+                $favoriteStatus = false;
+            } else {
+                // Ajouter aux favoris
+                $sql = "INSERT INTO project_favorites (project_id, user_id) VALUES (?, ?)";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([$projectId, $userId]);
+                $message = 'Projet ajouté aux favoris';
+                $favoriteStatus = true;
+            }
+
+            return [
+                'success' => true,
+                'message' => $message,
+                'data' => ['is_favorite' => $favoriteStatus]
+            ];
+
+        } catch (Exception $e) {
+            error_log("Error toggling favorite: " . $e->getMessage());
+            return ['success' => false, 'message' => 'Erreur lors de la modification des favoris'];
+        }
+    }
+
+    public function toggleArchive(int $projectId, int $userId): array
+    {
+        try {
+            if (!$this->hasProjectPermission($projectId, $userId, ['owner', 'admin'])) {
+                return ['success' => false, 'message' => 'Permissions insuffisantes'];
+            }
+
+            $project = $this->findById($projectId);
+            $newStatus = ($project['status'] === 'archived') ? 'active' : 'archived';
+
+            $result = $this->update($projectId, ['status' => $newStatus]);
+            
+            if ($result['success']) {
+                $message = ($newStatus === 'archived') ? 'Projet archivé' : 'Projet désarchivé';
+                return [
+                    'success' => true,
+                    'message' => $message,
+                    'data' => ['status' => $newStatus]
+                ];
+            }
+
+            return $result;
+
+        } catch (Exception $e) {
+            error_log("Error toggling archive: " . $e->getMessage());
+            return ['success' => false, 'message' => 'Erreur lors de l\'archivage'];
         }
     }
 }
