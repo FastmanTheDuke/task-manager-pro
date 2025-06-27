@@ -5,6 +5,11 @@ use TaskManager\Config\App;
 
 class CorsMiddleware {
     public static function handle() {
+        // Vérifier si on est dans un contexte HTTP (pas CLI)
+        if (php_sapi_name() === 'cli' || !isset($_SERVER['REQUEST_METHOD'])) {
+            return true; // Ignorer CORS en CLI
+        }
+        
         $corsConfig = App::get('cors');
         
         // Récupérer l'origine de la requête
