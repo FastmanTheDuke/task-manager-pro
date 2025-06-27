@@ -18,6 +18,9 @@ class ValidationMiddleware
                 ResponseService::error('Aucune donnée fournie', 400);
             }
             
+            // Préprocesser les données pour normaliser les booléens
+            $data = self::preprocessData($data);
+            
             // Use ValidationService with better error handling
             if (!ValidationService::validate($data, $rules)) {
                 $errors = ValidationService::getErrors();
@@ -36,6 +39,30 @@ class ValidationMiddleware
             error_log('ValidationMiddleware error: ' . $e->getMessage());
             ResponseService::error('Erreur de validation: ' . $e->getMessage(), 422);
         }
+    }
+    
+    /**
+     * Préprocesser les données pour normaliser les types
+     */
+    private static function preprocessData(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            // Normaliser les booléens envoyés comme chaînes
+            if (is_string($value)) {
+                if ($value === 'true' || $value === '1') {
+                    $data[$key] = true;
+                } elseif ($value === 'false' || $value === '0') {
+                    $data[$key] = false;
+                }
+            }
+            
+            // Traiter les tableaux récursivement
+            if (is_array($value)) {
+                $data[$key] = self::preprocessData($value);
+            }
+        }
+        
+        return $data;
     }
     
     /**
