@@ -132,34 +132,38 @@ function handleGetProject($project, $projectId, $userId) {
 
 function handleCreateProject($project, $userId) {
     try {
-        // Règles de validation pour la création
+        // Règles de validation basées sur la VRAIE structure DB
         $rules = [
-            'name' => 'required|string|min:1|max:255',
-            'description' => 'nullable|string|max:1000',
-            'status' => 'nullable|string|in:active,completed,archived',
-            'priority' => 'nullable|string|in:low,medium,high,urgent',
-            'due_date' => 'nullable|date',  // Optionnel et peut être null
-            'color' => 'nullable|string|max:7',
-            'is_public' => 'nullable|boolean'  // Optionnel et sera converti automatiquement
+            'name' => 'required|string|min:1|max:100',           // varchar(100) NOT NULL
+            'description' => 'nullable|string|max:1000',         // text DEFAULT NULL
+            'color' => 'nullable|string|max:7',                  // varchar(7) DEFAULT '#4361ee'
+            'icon' => 'nullable|string|max:50',                  // varchar(50) DEFAULT 'folder'
+            'status' => 'nullable|string|in:active,archived,completed', // enum avec ces valeurs
+            'priority' => 'nullable|string|in:low,medium,high,urgent',  // enum avec ces valeurs
+            'start_date' => 'nullable|date',                     // date DEFAULT NULL
+            'end_date' => 'nullable|date',                       // date DEFAULT NULL (pas due_date!)
+            'is_public' => 'nullable|boolean'                    // tinyint(4) NOT NULL DEFAULT 0
         ];
         
         // Valider les données avec notre middleware amélioré
         $validatedData = ValidationMiddleware::validate($rules);
         
-        // Préparer les données du projet avec des valeurs par défaut
+        // Préparer les données selon la VRAIE structure DB
         $projectData = [
             'name' => $validatedData['name'],
             'description' => $validatedData['description'] ?? null,
-            'status' => $validatedData['status'] ?? 'active',
-            'priority' => $validatedData['priority'] ?? 'medium',
-            'due_date' => !empty($validatedData['due_date']) ? $validatedData['due_date'] : null,
-            'color' => $validatedData['color'] ?? '#3B82F6',
-            'is_public' => isset($validatedData['is_public']) ? (bool)$validatedData['is_public'] : false,
-            'created_by' => $userId
+            'color' => $validatedData['color'] ?? '#4361ee',      // Valeur par défaut DB
+            'icon' => $validatedData['icon'] ?? 'folder',         // Valeur par défaut DB  
+            'status' => $validatedData['status'] ?? 'active',     // Valeur par défaut DB
+            'priority' => $validatedData['priority'] ?? 'medium', // Valeur par défaut DB
+            'start_date' => !empty($validatedData['start_date']) ? $validatedData['start_date'] : null,
+            'end_date' => !empty($validatedData['end_date']) ? $validatedData['end_date'] : null,  // Pas due_date!
+            'is_public' => isset($validatedData['is_public']) ? (int)(bool)$validatedData['is_public'] : 0,
+            'owner_id' => $userId  // Pas created_by mais owner_id!
         ];
         
-        // Debug log
-        error_log("Creating project with data: " . json_encode($projectData));
+        // Debug log avec les bons noms de champs
+        error_log("Creating project with CORRECTED data: " . json_encode($projectData));
         
         $result = $project->createProject($projectData, $userId);
         
@@ -189,32 +193,40 @@ function handleUpdateProject($project, $projectId, $userId) {
     try {
         // Règles de validation pour la mise à jour (tous les champs optionnels)
         $rules = [
-            'name' => 'nullable|string|min:1|max:255',
+            'name' => 'nullable|string|min:1|max:100',
             'description' => 'nullable|string|max:1000',
-            'status' => 'nullable|string|in:active,completed,archived',
-            'priority' => 'nullable|string|in:low,medium,high,urgent',
-            'due_date' => 'nullable|date',  // Optionnel et peut être null ou vide
             'color' => 'nullable|string|max:7',
-            'is_public' => 'nullable|boolean'  // Optionnel et sera converti automatiquement
+            'icon' => 'nullable|string|max:50',
+            'status' => 'nullable|string|in:active,archived,completed',
+            'priority' => 'nullable|string|in:low,medium,high,urgent',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date',      // Pas due_date!
+            'is_public' => 'nullable|boolean'
         ];
         
         // Valider les données
         $validatedData = ValidationMiddleware::validate($rules);
         
-        // Traitement spécial pour due_date - permettre de le vider
-        if (array_key_exists('due_date', $validatedData)) {
-            if (empty($validatedData['due_date']) || $validatedData['due_date'] === '') {
-                $validatedData['due_date'] = null;
+        // Traitement spécial pour les dates - permettre de les vider
+        if (array_key_exists('start_date', $validatedData)) {
+            if (empty($validatedData['start_date']) || $validatedData['start_date'] === '') {
+                $validatedData['start_date'] = null;
             }
         }
         
-        // Traitement spécial pour is_public
-        if (array_key_exists('is_public', $validatedData)) {
-            $validatedData['is_public'] = (bool)$validatedData['is_public'];
+        if (array_key_exists('end_date', $validatedData)) {
+            if (empty($validatedData['end_date']) || $validatedData['end_date'] === '') {
+                $validatedData['end_date'] = null;
+            }
         }
         
-        // Debug log
-        error_log("Updating project $projectId with data: " . json_encode($validatedData));
+        // Traitement spécial pour is_public - conversion en tinyint
+        if (array_key_exists('is_public', $validatedData)) {
+            $validatedData['is_public'] = (int)(bool)$validatedData['is_public'];
+        }
+        
+        // Debug log avec les bons noms de champs
+        error_log("Updating project $projectId with CORRECTED data: " . json_encode($validatedData));
         
         // Check if user has permission to update this project
         $projectData = $project->getProjectById($projectId, $userId);
