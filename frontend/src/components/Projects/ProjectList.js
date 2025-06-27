@@ -46,12 +46,20 @@ const ProjectList = () => {
   const fetchProjects = async () => {
     try {
       setLoading(true);
+      setError(null); // Reset error state
+      
       const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Token d\'authentification manquant');
+      }
+      
       const queryParams = new URLSearchParams({
         ...filters,
         page: 1,
         limit: 50
       });
+
+      console.log('🔍 Fetching projects...', `${process.env.REACT_APP_API_URL}/projects?${queryParams}`);
 
       const response = await fetch(`${process.env.REACT_APP_API_URL}/projects?${queryParams}`, {
         headers: {
@@ -60,18 +68,51 @@ const ProjectList = () => {
         }
       });
 
+      console.log('📡 API Response status:', response.status);
+
       if (!response.ok) {
-        throw new Error('Erreur lors du chargement des projets');
+        const errorText = await response.text();
+        console.error('❌ API Error:', response.status, errorText);
+        throw new Error(`Erreur ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('📦 API Response data:', data);
+
       if (data.success) {
-        setProjects(data.data.projects || []);
+        // Gestion robuste de la structure de réponse
+        let projectsArray = [];
+        
+        if (data.data) {
+          if (Array.isArray(data.data)) {
+            // Si data.data est directement un array
+            projectsArray = data.data;
+          } else if (data.data.projects && Array.isArray(data.data.projects)) {
+            // Si data.data.projects est un array
+            projectsArray = data.data.projects;
+          } else {
+            console.warn('⚠️ Structure de données inattendue:', data.data);
+          }
+        }
+        
+        console.log('✅ Projects loaded:', projectsArray.length, 'projects');
+        setProjects(projectsArray);
+        
+        // Mettre à jour les stats si disponibles
+        if (data.data && data.data.pagination) {
+          setStats(prev => ({
+            ...prev,
+            total: data.data.pagination.total || projectsArray.length
+          }));
+        }
       } else {
+        console.error('❌ API returned success=false:', data.message);
         throw new Error(data.message || 'Erreur inconnue');
       }
     } catch (err) {
+      console.error('❌ Fetch projects error:', err);
       setError(err.message);
+      setProjects([]); // Reset projects on error
     } finally {
       setLoading(false);
     }
@@ -80,6 +121,7 @@ const ProjectList = () => {
   const fetchProjectStats = async () => {
     try {
       const token = localStorage.getItem('token');
+      if (!token) return;
       
       const response = await fetch(`${process.env.REACT_APP_API_URL}/dashboard`, {
         headers: {
@@ -88,21 +130,18 @@ const ProjectList = () => {
         }
       });
 
-      if (!response.ok) {
-        throw new Error('Erreur lors du chargement des statistiques');
-      }
-
-      const data = await response.json();
-      if (data.success && data.data.stats) {
-        setStats({
-          total: data.data.stats.totalProjects || 0,
-          active: data.data.stats.activeProjects || 0,
-          completed: 0, // Calculé à partir des projets
-          overdue: 0    // Calculé à partir des projets
-        });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data && data.data.stats) {
+          setStats(prev => ({
+            ...prev,
+            total: data.data.stats.totalProjects || 0,
+            active: data.data.stats.activeProjects || 0
+          }));
+        }
       }
     } catch (err) {
-      console.error('Erreur lors du chargement des stats:', err);
+      console.error('⚠️ Erreur stats (non critique):', err);
       // Ne pas afficher d'erreur pour les stats, juste garder les valeurs par défaut
     }
   };
@@ -119,7 +158,8 @@ const ProjectList = () => {
       setStats(prev => ({
         ...prev,
         completed,
-        overdue
+        overdue,
+        total: Math.max(prev.total, projects.length) // Prendre le max entre API et count local
       }));
     }
   }, [projects]);
@@ -138,6 +178,11 @@ const ProjectList = () => {
 
   const handleProjectDelete = (projectId) => {
     setProjects(prev => prev.filter(project => project.id !== projectId));
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    fetchProjects();
   };
 
   if (loading) return <LoadingSpinner />;
@@ -234,15 +279,24 @@ const ProjectList = () => {
 
         {/* Error Message */}
         {error && (
-          <ErrorMessage 
-            message={error} 
-            onClose={() => setError(null)}
-            className="mb-6"
-          />
+          <div className="mb-6">
+            <ErrorMessage 
+              message={error} 
+              onClose={() => setError(null)}
+            />
+            <div className="mt-4 text-center">
+              <button
+                onClick={handleRetry}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              >
+                Réessayer
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Projects Grid */}
-        {projects.length === 0 ? (
+        {!error && projects.length === 0 ? (
           <div className={`text-center py-12 ${isDark ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow-sm`}>
             <FolderIcon className={`mx-auto h-12 w-12 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
             <h3 className={`mt-2 text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-900'}`}>
@@ -261,7 +315,7 @@ const ProjectList = () => {
               </Link>
             </div>
           </div>
-        ) : (
+        ) : !error && projects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projects.map(project => (
               <ProjectCard
@@ -273,7 +327,7 @@ const ProjectList = () => {
               />
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
