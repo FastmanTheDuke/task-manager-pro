@@ -293,31 +293,72 @@ class User extends BaseModel
     
     /**
      * Search users by name or email (with option to exclude current user)
+     * AMÉLIORATION: Recherche insensible à la casse et gestion des valeurs NULL
      */
     public function searchUsers(string $query, ?int $excludeUserId = null, int $limit = 20): array
     {
-        $searchTerm = "%{$query}%";
-        
-        $sql = "SELECT id, username, email, first_name, last_name, avatar, role, status 
-                FROM {$this->table} 
-                WHERE (username LIKE ? OR email LIKE ? OR first_name LIKE ? OR last_name LIKE ?) 
-                AND status = ?";
-        
-        $params = [$searchTerm, $searchTerm, $searchTerm, $searchTerm, self::STATUS_ACTIVE];
-        
-        // Exclude current user if specified
-        if ($excludeUserId !== null) {
-            $sql .= " AND id != ?";
-            $params[] = $excludeUserId;
+        try {
+            // Nettoyer et préparer le terme de recherche
+            $searchTerm = "%" . strtolower(trim($query)) . "%";
+            
+            // Debug log
+            error_log("User search - Query: '$query', SearchTerm: '$searchTerm', ExcludeUserId: " . ($excludeUserId ?? 'null'));
+            
+            // Requête améliorée avec LOWER() pour insensibilité à la casse et COALESCE pour gérer NULL
+            $sql = "SELECT id, username, email, first_name, last_name, avatar, role, status 
+                    FROM {$this->table} 
+                    WHERE (
+                        LOWER(username) LIKE ? 
+                        OR LOWER(email) LIKE ? 
+                        OR LOWER(COALESCE(first_name, '')) LIKE ? 
+                        OR LOWER(COALESCE(last_name, '')) LIKE ?
+                        OR LOWER(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) LIKE ?
+                    ) 
+                    AND status = ?";
+            
+            $params = [$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, self::STATUS_ACTIVE];
+            
+            // Exclude current user if specified
+            if ($excludeUserId !== null) {
+                $sql .= " AND id != ?";
+                $params[] = $excludeUserId;
+            }
+            
+            $sql .= " ORDER BY 
+                        CASE 
+                            WHEN LOWER(username) LIKE ? THEN 1
+                            WHEN LOWER(email) LIKE ? THEN 2
+                            WHEN LOWER(COALESCE(first_name, '')) LIKE ? THEN 3
+                            WHEN LOWER(COALESCE(last_name, '')) LIKE ? THEN 4
+                            ELSE 5
+                        END,
+                        username ASC 
+                     LIMIT ?";
+            
+            // Ajouter les paramètres pour l'ORDER BY
+            $params[] = $searchTerm; // username priority
+            $params[] = $searchTerm; // email priority
+            $params[] = $searchTerm; // first_name priority
+            $params[] = $searchTerm; // last_name priority
+            $params[] = $limit;
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            $results = $stmt->fetchAll();
+            
+            // Debug log
+            error_log("User search results count: " . count($results));
+            if (count($results) > 0) {
+                error_log("First result: " . json_encode($results[0]));
+            }
+            
+            return $results;
+            
+        } catch (Exception $e) {
+            error_log("User search error: " . $e->getMessage());
+            return [];
         }
-        
-        $sql .= " ORDER BY username ASC LIMIT ?";
-        $params[] = $limit;
-        
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        
-        return $stmt->fetchAll();
     }
     
     /**
