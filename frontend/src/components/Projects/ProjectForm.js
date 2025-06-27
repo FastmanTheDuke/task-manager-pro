@@ -27,7 +27,7 @@ const ProjectForm = () => {
     description: '',
     status: 'active',
     priority: 'medium',
-    due_date: '',
+    end_date: '', // CORRECTION: end_date au lieu de due_date
     color: '#3B82F6',
     is_public: false,
     template_id: null
@@ -68,7 +68,7 @@ const ProjectForm = () => {
           description: project.description || '',
           status: project.status || 'active',
           priority: project.priority || 'medium',
-          due_date: project.due_date ? project.due_date.split('T')[0] : '',
+          end_date: project.end_date ? project.end_date.split('T')[0] : '', // CORRECTION
           color: project.color || '#3B82F6',
           is_public: project.is_public || false,
           template_id: project.template_id || null
@@ -188,6 +188,8 @@ const ProjectForm = () => {
         }))
       };
 
+      console.log('Payload envoyé:', payload); // Debug
+
       const response = await fetch(url, {
         method,
         headers: {
@@ -200,6 +202,11 @@ const ProjectForm = () => {
       const data = await response.json();
       
       if (!response.ok) {
+        // Gestion améliorée des erreurs de validation
+        if (data.errors) {
+          const errorMessages = Object.values(data.errors).flat();
+          throw new Error(errorMessages.join(', '));
+        }
         throw new Error(data.message || 'Erreur lors de la sauvegarde');
       }
 
@@ -210,6 +217,7 @@ const ProjectForm = () => {
       }
     } catch (err) {
       setError(err.message);
+      console.error('Erreur lors de la soumission:', err); // Debug
     } finally {
       setLoading(false);
     }
@@ -341,15 +349,15 @@ const ProjectForm = () => {
                 </select>
               </div>
 
-              {/* Due Date */}
+              {/* End Date - CORRECTION */}
               <div>
                 <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                   Date d'échéance
                 </label>
                 <input
                   type="date"
-                  name="due_date"
-                  value={formData.due_date}
+                  name="end_date"
+                  value={formData.end_date}
                   onChange={handleInputChange}
                   className={`
                     block w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500
