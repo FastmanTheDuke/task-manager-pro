@@ -115,8 +115,10 @@ function getRecentTasks($taskModel, $userId) {
 
 function getRecentProjects($projectModel, $userId) {
     try {
+        // CORRECTION: Accéder directement à $result['data'] au lieu de $result['data']['projects']
+        // car getProjectsForUser retourne directement les projets dans 'data'
         $result = $projectModel->getProjectsForUser($userId, [], 1, 6);
-        return $result['success'] ? $result['data']['projects'] : [];
+        return $result['success'] ? $result['data'] : [];
     } catch (Exception $e) {
         error_log("Error getting recent projects: " . $e->getMessage());
         return [];
