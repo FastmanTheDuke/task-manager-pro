@@ -1,41 +1,85 @@
 <?php
 namespace TaskManager\Middleware;
 
-use TaskManager\Config\App;
-
-class CorsMiddleware {
-    public static function handle() {
-        // Vérifier si on est dans un contexte HTTP (pas CLI)
-        if (php_sapi_name() === 'cli' || !isset($_SERVER['REQUEST_METHOD'])) {
-            return true; // Ignorer CORS en CLI
-        }
+class CorsMiddleware 
+{
+    /**
+     * Handle CORS for all requests
+     */
+    public static function handle(): void 
+    {
+        // Get the origin of the request
+        $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
         
-        $corsConfig = App::get('cors');
+        // Define allowed origins (in production, replace with specific domains)
+        $allowedOrigins = [
+            'http://localhost:3000',
+            'http://localhost:3001',
+            'http://localhost:8000',
+            'http://localhost:8080',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:3001',
+            'http://127.0.0.1:8000',
+            'http://127.0.0.1:8080'
+        ];
         
-        // Récupérer l'origine de la requête
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        
-        // Vérifier si l'origine est autorisée
-        if (in_array('*', $corsConfig['allowed_origins']) || in_array($origin, $corsConfig['allowed_origins'])) {
+        // Check if the origin is allowed
+        if (in_array($origin, $allowedOrigins)) {
             header("Access-Control-Allow-Origin: $origin");
+        } else {
+            // For development, allow all origins. In production, be more restrictive
+            header("Access-Control-Allow-Origin: *");
         }
         
-        // Définir les autres headers CORS
-        header('Access-Control-Allow-Methods: ' . implode(', ', $corsConfig['allowed_methods']));
-        header('Access-Control-Allow-Headers: ' . implode(', ', $corsConfig['allowed_headers']));
+        // Allow credentials (important for authentication)
+        header("Access-Control-Allow-Credentials: true");
         
-        if ($corsConfig['allow_credentials']) {
-            header('Access-Control-Allow-Credentials: true');
-        }
+        // Allow these headers
+        header("Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Auth-Token, X-API-Key");
         
-        header('Access-Control-Max-Age: ' . $corsConfig['max_age']);
+        // Allow these methods
+        header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS");
         
-        // Si c'est une requête OPTIONS, retourner une réponse vide
+        // Cache preflight response for 1 hour
+        header("Access-Control-Max-Age: 3600");
+        
+        // Handle preflight OPTIONS requests
         if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
             http_response_code(200);
-            exit();
+            exit(0);
         }
+    }
+    
+    /**
+     * Set specific CORS headers for API responses
+     */
+    public static function setApiHeaders(): void
+    {
+        self::handle();
         
-        return true;
+        // Additional headers for API responses
+        header('Content-Type: application/json; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+        header('X-Frame-Options: DENY');
+        header('X-XSS-Protection: 1; mode=block');
+    }
+    
+    /**
+     * Check if the request origin is allowed
+     */
+    public static function isOriginAllowed(string $origin): bool
+    {
+        $allowedOrigins = [
+            'http://localhost:3000',
+            'http://localhost:3001',
+            'http://localhost:8000',
+            'http://localhost:8080',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:3001',
+            'http://127.0.0.1:8000',
+            'http://127.0.0.1:8080'
+        ];
+        
+        return in_array($origin, $allowedOrigins);
     }
 }
