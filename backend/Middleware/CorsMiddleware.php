@@ -8,6 +8,11 @@ class CorsMiddleware
      */
     public static function handle(): void 
     {
+        // Ne pas exécuter CORS en mode CLI (ligne de commande)
+        if (php_sapi_name() === 'cli' || !isset($_SERVER['REQUEST_METHOD'])) {
+            return;
+        }
+        
         // Get the origin of the request
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '*';
         
@@ -43,8 +48,8 @@ class CorsMiddleware
         // Cache preflight response for 1 hour
         header("Access-Control-Max-Age: 3600");
         
-        // Handle preflight OPTIONS requests
-        if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        // Handle preflight OPTIONS requests (seulement si REQUEST_METHOD existe)
+        if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
             http_response_code(200);
             exit(0);
         }
@@ -56,6 +61,11 @@ class CorsMiddleware
     public static function setApiHeaders(): void
     {
         self::handle();
+        
+        // Ne pas définir les headers HTTP en mode CLI
+        if (php_sapi_name() === 'cli') {
+            return;
+        }
         
         // Additional headers for API responses
         header('Content-Type: application/json; charset=utf-8');
@@ -81,5 +91,13 @@ class CorsMiddleware
         ];
         
         return in_array($origin, $allowedOrigins);
+    }
+    
+    /**
+     * Check if we're running in CLI mode
+     */
+    public static function isCli(): bool
+    {
+        return php_sapi_name() === 'cli' || !isset($_SERVER['REQUEST_METHOD']);
     }
 }
