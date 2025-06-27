@@ -37,7 +37,10 @@ const ProjectList = () => {
   });
 
   useEffect(() => {
-    fetchProjects();
+    Promise.all([
+      fetchProjects(),
+      fetchProjectStats()
+    ]);
   }, [filters]);
 
   const fetchProjects = async () => {
@@ -64,7 +67,6 @@ const ProjectList = () => {
       const data = await response.json();
       if (data.success) {
         setProjects(data.data.projects || []);
-        setStats(data.data.stats || stats);
       } else {
         throw new Error(data.message || 'Erreur inconnue');
       }
@@ -74,6 +76,53 @@ const ProjectList = () => {
       setLoading(false);
     }
   };
+
+  const fetchProjectStats = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/dashboard`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Erreur lors du chargement des statistiques');
+      }
+
+      const data = await response.json();
+      if (data.success && data.data.stats) {
+        setStats({
+          total: data.data.stats.totalProjects || 0,
+          active: data.data.stats.activeProjects || 0,
+          completed: 0, // Calculé à partir des projets
+          overdue: 0    // Calculé à partir des projets
+        });
+      }
+    } catch (err) {
+      console.error('Erreur lors du chargement des stats:', err);
+      // Ne pas afficher d'erreur pour les stats, juste garder les valeurs par défaut
+    }
+  };
+
+  // Calculer les stats supplémentaires à partir des projets
+  useEffect(() => {
+    if (projects.length > 0) {
+      const completed = projects.filter(p => p.status === 'completed').length;
+      const overdue = projects.filter(p => {
+        if (!p.end_date || p.status === 'completed') return false;
+        return new Date(p.end_date) < new Date();
+      }).length;
+
+      setStats(prev => ({
+        ...prev,
+        completed,
+        overdue
+      }));
+    }
+  }, [projects]);
 
   const handleFilterChange = (newFilters) => {
     setFilters(prev => ({ ...prev, ...newFilters }));
