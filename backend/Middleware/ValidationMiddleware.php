@@ -18,8 +18,11 @@ class ValidationMiddleware
                 ResponseService::error('Aucune donnée fournie', 400);
             }
             
-            // Préprocesser les données pour normaliser les booléens
+            // Préprocesser les données pour normaliser les booléens et autres types
             $data = self::preprocessData($data);
+            
+            // Debug log pour voir les données après preprocessing
+            error_log('ValidationMiddleware - Data after preprocessing: ' . json_encode($data));
             
             // Use ValidationService with better error handling
             if (!ValidationService::validate($data, $rules)) {
@@ -29,6 +32,9 @@ class ValidationMiddleware
                 if (!is_array($errors)) {
                     $errors = ['validation' => 'Erreur de validation inconnue'];
                 }
+                
+                // Debug log pour voir les erreurs de validation
+                error_log('ValidationMiddleware - Validation errors: ' . json_encode($errors));
                 
                 ResponseService::validation($errors, 'Erreur de validation');
             }
@@ -49,16 +55,31 @@ class ValidationMiddleware
         foreach ($data as $key => $value) {
             // Normaliser les booléens envoyés comme chaînes
             if (is_string($value)) {
-                if ($value === 'true' || $value === '1') {
+                $lowerValue = strtolower($value);
+                
+                // Conversion booléenne étendue
+                if (in_array($lowerValue, ['true', '1', 'yes', 'on'])) {
                     $data[$key] = true;
-                } elseif ($value === 'false' || $value === '0') {
+                } elseif (in_array($lowerValue, ['false', '0', 'no', 'off', ''])) {
                     $data[$key] = false;
+                } elseif ($value === 'null' || $value === '') {
+                    // Gérer les valeurs null envoyées comme chaînes
+                    $data[$key] = null;
                 }
             }
             
             // Traiter les tableaux récursivement
             if (is_array($value)) {
                 $data[$key] = self::preprocessData($value);
+            }
+            
+            // Gérer les entiers envoyés comme chaînes
+            if (is_string($value) && is_numeric($value) && !isset($data[$key])) {
+                if (strpos($value, '.') !== false) {
+                    $data[$key] = (float)$value;
+                } else {
+                    $data[$key] = (int)$value;
+                }
             }
         }
         
@@ -90,7 +111,15 @@ class ValidationMiddleware
             }
             
             // Form data (POST, PUT, etc.)
-            return $_POST ?: [];
+            $postData = $_POST ?: [];
+            $putData = [];
+            
+            // Gérer les données PUT/PATCH
+            if ($_SERVER['REQUEST_METHOD'] === 'PUT' || $_SERVER['REQUEST_METHOD'] === 'PATCH') {
+                parse_str(file_get_contents('php://input'), $putData);
+            }
+            
+            return array_merge($postData, $putData);
             
         } catch (\Exception $e) {
             error_log('getRequestData error: ' . $e->getMessage());
@@ -265,5 +294,45 @@ class ValidationMiddleware
     {
         $validPriorities = ['low', 'medium', 'high', 'urgent'];
         return in_array($priority, $validPriorities);
+    }
+    
+    /**
+     * Validation spécifique pour les booléens
+     */
+    public static function validateBoolean($value): bool
+    {
+        if (is_bool($value)) {
+            return true;
+        }
+        
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['true', 'false', '1', '0', 'yes', 'no', 'on', 'off']);
+        }
+        
+        if (is_numeric($value)) {
+            return in_array($value, [0, 1]);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Convertir une valeur en booléen
+     */
+    public static function toBoolean($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['true', '1', 'yes', 'on']);
+        }
+        
+        if (is_numeric($value)) {
+            return (bool)(int)$value;
+        }
+        
+        return false;
     }
 }
